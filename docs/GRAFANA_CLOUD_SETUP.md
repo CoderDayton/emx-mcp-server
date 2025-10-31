@@ -107,52 +107,42 @@ You should see metrics within 10-30 seconds after EMX server starts.
 
 EMX server exports these metrics:
 
-| Metric Name | Type | Description |
-|-------------|------|-------------|
-| `emx.embeddings.encode.duration` | Histogram | Time to encode tokens (seconds) |
-| `emx.embeddings.encode.tokens` | Counter | Total tokens encoded |
-| `emx.embeddings.encode.batch_size` | Histogram | Batch sizes processed |
-| `emx.vector.search.duration` | Histogram | Vector search latency (seconds) |
-| `emx.vector.search.queries` | Counter | Total search queries |
-| `emx.vector.search.results` | Histogram | Results returned per query |
-| `emx.vector.index.size` | Gauge | Total vectors in index |
-| `emx.vector.index.trained` | Gauge | Index training status (0 or 1) |
+| Metric Name | Type | Description | Labels |
+|-------------|------|-------------|--------|
+| `emx.embedding.duration` | Histogram | Time to encode tokens (seconds) | `device`, `batch_size_bucket` |
+| `emx.vector_search.duration` | Histogram | Vector search latency (seconds) | `device`, `batch_api`, `query_size_bucket`, `k` |
+| `emx.operations.total` | Counter | Total operations by type | `operation`, `device`, `batch_api` |
+| `emx.operations.errors` | Counter | Failed operations | `operation`, `device`, `error_type` |
+| `emx.batch.size` | Histogram | Batch size distribution | `operation` |
 
 ---
 
 ## Create a Dashboard
 
-### Quick Start Dashboard
+### Production-Ready Dashboard
 
-1. Go to **Grafana Cloud → Dashboards → New → Import**
-2. Use this JSON (basic performance dashboard):
+A complete dashboard is available in this repository:
 
-```json
-{
-  "dashboard": {
-    "title": "EMX-MCP Performance",
-    "panels": [
-      {
-        "title": "Embedding Throughput",
-        "targets": [{"expr": "rate(emx_embeddings_encode_tokens_total[5m])"}],
-        "type": "graph"
-      },
-      {
-        "title": "Search Latency (p95)",
-        "targets": [{"expr": "histogram_quantile(0.95, emx_vector_search_duration_bucket)"}],
-        "type": "graph"
-      },
-      {
-        "title": "Index Size",
-        "targets": [{"expr": "emx_vector_index_size"}],
-        "type": "stat"
-      }
-    ]
-  }
-}
-```
+1. **Download the dashboard JSON**:
+   - File: [`grafana-dashboard-example.json`](./grafana-dashboard-example.json)
+   - Or view on GitHub: [docs/grafana-dashboard-example.json](https://github.com/yourusername/emx-mcp-server/blob/main/docs/grafana-dashboard-example.json)
 
-3. Save and view your real-time metrics
+2. **Import into Grafana Cloud**:
+   - Go to **Grafana Cloud → Dashboards → New → Import**
+   - Click **Upload JSON file** and select `grafana-dashboard-example.json`
+   - Select your Prometheus data source
+   - Click **Import**
+
+3. **What you get**:
+   - **Embedding Performance**: Latency percentiles (p50/p95/p99), batch size distribution
+   - **Vector Search Performance**: Search latency by device/API, query count distribution
+   - **Operation Rates**: Throughput and error rates by operation type
+   - **System Overview**: Health stats and p95 latency summary
+
+4. **Customize**:
+   - Click any panel → Edit to adjust queries
+   - Add more panels by clicking **Add panel**
+   - Set thresholds and alerts via **Alert** tab
 
 ---
 
