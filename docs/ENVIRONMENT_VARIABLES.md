@@ -351,6 +351,131 @@ EMX-MCP Server is configured via environment variables. When using with MCP clie
 
 ---
 
+#### `EMX_STORAGE_AUTO_RETRAIN`
+**Default**: `true`  
+**Valid Values**: `true`, `false`  
+**Description**: Enable automatic IVF index retraining when nlist drift is detected.
+
+**Guidelines**:
+- `true`: Index automatically optimizes as vectors grow (recommended for production)
+- `false`: Manual retraining only (useful for testing or controlled environments)
+- Retraining triggers when current nlist drifts beyond `EMX_STORAGE_NLIST_DRIFT_THRESHOLD`
+- Each optimization event is logged to `.emx_optimization_history.json`
+
+**How It Works**:
+- System calculates optimal nlist as `sqrt(n_vectors)` bounded by `[128, n_vectors/39]`
+- Compares current nlist to optimal: if `ratio > threshold`, retrain index
+- Typical progression: 1k vectors → nlist=32, 10k → nlist=100, 1M → nlist=1000
+
+**Example**:
+```json
+"EMX_STORAGE_AUTO_RETRAIN": "true"
+```
+
+---
+
+#### `EMX_STORAGE_NLIST_DRIFT_THRESHOLD`
+**Default**: `2.0`  
+**Valid Range**: `1.1` to `10.0`  
+**Description**: Ratio threshold for triggering automatic index retraining.
+
+**Tuning Guidelines**:
+- **Conservative (1.5-2.0)**: Keeps index near-optimal (more retraining, better performance)
+- **Moderate (2.0-3.0)**: Balanced approach (default, good for most workloads)
+- **Aggressive (3.0-10.0)**: Tolerates drift (fewer retrains, accepts performance degradation)
+- Lower threshold = more frequent retraining = better search quality
+- Higher threshold = less overhead but suboptimal nlist longer
+
+**Performance Impact**:
+- Retraining cost: ~100ms per 10k vectors (one-time operation)
+- Optimal nlist improves search speed 2-5x and recall by 5-15%
+- Drift >5x can degrade search quality significantly
+
+**Example (aggressive optimization)**:
+```json
+"EMX_STORAGE_NLIST_DRIFT_THRESHOLD": "1.5"
+```
+
+**Example (conservative, minimize retraining)**:
+```json
+"EMX_STORAGE_NLIST_DRIFT_THRESHOLD": "5.0"
+```
+
+---
+
+### GPU Optimization Configuration
+
+#### `EMX_GPU_ENABLE_PINNED_MEMORY`
+**Default**: `true`  
+**Valid Values**: `true`, `false`  
+**Description**: Enable pinned memory pool for async CPU→GPU transfers.
+
+**Guidelines**:
+- `true`: Use pinned memory for non-blocking transfers (recommended if PyTorch + CUDA available)
+- `false`: Disable pinned memory (fallback for CPU-only systems or PyTorch unavailable)
+- Only beneficial for batch_size ≥ 32 due to allocation overhead
+- Requires PyTorch with CUDA support
+
+**Example**:
+```json
+"EMX_GPU_ENABLE_PINNED_MEMORY": "true"
+```
+
+---
+
+#### `EMX_GPU_PINNED_BUFFER_SIZE`
+**Default**: `4`  
+**Valid Range**: `1` to `32`  
+**Description**: Number of reusable pinned memory buffers in pool.
+
+**Tuning Guidelines**:
+- **Low concurrency (1-2 parallel ops)**: 2-4 buffers
+- **Medium concurrency (3-5 parallel ops)**: 4-8 buffers
+- **High concurrency (6+ parallel ops)**: 8-16 buffers
+- Each buffer pre-allocates `pinned_max_batch × vector_dim × 4 bytes` (e.g., 128 × 384 × 4 = 196KB per buffer)
+- More buffers = more memory but less blocking on acquire()
+
+**Example**:
+```json
+"EMX_GPU_PINNED_BUFFER_SIZE": "8"
+```
+
+---
+
+#### `EMX_GPU_PINNED_MAX_BATCH`
+**Default**: `128`  
+**Valid Range**: `32` to `512`  
+**Description**: Maximum batch size per pinned buffer.
+
+**Tuning Guidelines**:
+- Should match or exceed `EMX_MODEL_BATCH_SIZE`
+- Higher values allow larger batches but increase per-buffer memory
+- 128-256 is optimal for most GPU workloads
+
+**Example**:
+```json
+"EMX_GPU_PINNED_MAX_BATCH": "256"
+```
+
+---
+
+#### `EMX_GPU_PINNED_MIN_BATCH_THRESHOLD`
+**Default**: `32`  
+**Valid Range**: `1` to `256`  
+**Description**: Minimum batch size to use pinned memory (falls back to regular tensors below this).
+
+**Tuning Guidelines**:
+- Pinned memory has allocation overhead that only pays off for larger batches
+- 32-64 is the crossover point where async transfer benefits exceed overhead
+- Lower if you have very fast DMA, higher if CPU-GPU transfers are slow
+
+**Example**:
+```json
+"EMX_GPU_PINNED_MIN_BATCH_THRESHOLD": "64"
+```
+
+---
+
 ### Logging Configuration
 
 #### `EMX_LOGGING_LEVEL`
@@ -471,7 +596,9 @@ For large-scale workloads:
 "env": {
   "EMX_MODEL_DEVICE": "cuda",
   "EMX_MODEL_BATCH_SIZE": "128",
-  "EMX_STORAGE_NPROBE": "32"
+  "EMX_STORAGE_NPROBE": "32",
+  "EMX_GPU_ENABLE_PINNED_MEMORY": "true",
+  "EMX_GPU_PINNED_BUFFER_SIZE": "8"
 }
 ```
 
@@ -481,6 +608,19 @@ Support for non-English text:
 "env": {
   "EMX_MODEL_NAME": "paraphrase-multilingual-MiniLM-L12-v2",
   "EMX_STORAGE_VECTOR_DIM": "384"
+}
+```
+
+### Large-Scale Production
+Optimized for millions of vectors with adaptive index management:
+```json
+"env": {
+  "EMX_MODEL_DEVICE": "cuda",
+  "EMX_MODEL_BATCH_SIZE": "128",
+  "EMX_STORAGE_NPROBE": "32",
+  "EMX_STORAGE_AUTO_RETRAIN": "true",
+  "EMX_STORAGE_NLIST_DRIFT_THRESHOLD": "1.5",
+  "EMX_STORAGE_DISK_OFFLOAD_THRESHOLD": "500000"
 }
 ```
 
