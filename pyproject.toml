@@ -6,6 +6,27 @@ authors = [{ name = "malu (Dayton Dunbar)", email = "coderdayton14@gmail.com" }]
 readme = "README.md"
 license = { file = "LICENSE.md" }
 requires-python = ">=3.12"
+classifiers = [
+  "Development Status :: 5 - Production/Stable",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+  "Typing :: Typed",
+]
+keywords = [
+  "episodic-memory",
+  "mcp-server",
+  "vector-search",
+  "faiss",
+  "sentence-transformers",
+  "context-management",
+  "ai",
+  "nlp",
+]
 dependencies = [
   "faiss-cpu>=1.12.0",
   "fastmcp>=2.13.0.2",

@@ -148,33 +148,42 @@ class DiskManager:
             logger.debug(f"Loaded {event_id} from mmap cache")
             return event_data
 
-        # Open new mmap
+        # Open new mmap with guaranteed cleanup on exception
         fh = open(file_path, "r+b")
-        mm = mmap.mmap(fh.fileno(), 0)
+        try:
+            mm = mmap.mmap(fh.fileno(), 0)
+            try:
+                # Cache mmap (limit cache size)
+                if len(self.mmap_cache) >= self.max_mmap_cache:
+                    # Close oldest mmap
+                    oldest_id = next(iter(self.mmap_cache))
+                    old_mm, old_fh = self.mmap_cache.pop(oldest_id)
+                    old_mm.close()
+                    old_fh.close()
+                    logger.debug(f"Evicted {oldest_id} from mmap cache")
 
-        # Cache mmap (limit cache size)
-        if len(self.mmap_cache) >= self.max_mmap_cache:
-            # Close oldest mmap
-            oldest_id = next(iter(self.mmap_cache))
-            old_mm, old_fh = self.mmap_cache.pop(oldest_id)
-            old_mm.close()
-            old_fh.close()
-            logger.debug(f"Evicted {oldest_id} from mmap cache")
+                self.mmap_cache[event_id] = (mm, fh)
 
-        self.mmap_cache[event_id] = (mm, fh)
+                # Read header
+                mm.seek(0)
+                header = struct.unpack("IQQ", mm.read(self.HEADER_SIZE))
+                version, data_offset, data_size = header
 
-        # Read header
-        mm.seek(0)
-        header = struct.unpack("IQQ", mm.read(self.HEADER_SIZE))
-        version, data_offset, data_size = header
+                # Read data
+                mm.seek(data_offset)
+                data_bytes = mm.read(data_size)
+                event_data = pickle.loads(data_bytes)
 
-        # Read data
-        mm.seek(data_offset)
-        data_bytes = mm.read(data_size)
-        event_data = pickle.loads(data_bytes)
-
-        logger.debug(f"Loaded {event_id} from disk with mmap")
-        return event_data
+                logger.debug(f"Loaded {event_id} from disk with mmap")
+                return event_data
+            except Exception:
+                # Cleanup on failure (not cached yet or partially cached)
+                mm.close()
+                raise
+        except Exception:
+            # Cleanup file handle on mmap creation failure
+            fh.close()
+            raise
 
     def _load_direct(self, file_path: Path) -> dict:
         """Load event directly without mmap."""

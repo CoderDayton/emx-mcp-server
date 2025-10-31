@@ -4,8 +4,10 @@ import faiss
 import numpy as np
 import pickle
 import json
+import threading
+from collections import deque
 from pathlib import Path
-from typing import List, Tuple, Optional, Dict
+from typing import List, Tuple, Optional, Dict, Deque
 import logging
 
 logger = logging.getLogger(__name__)
@@ -35,14 +37,15 @@ class VectorStore:
         self.metadata_path = self.storage_path / "metadata.pkl"
         self.id_map_path = self.storage_path / "id_map.json"
 
-        # ID mapping for event removal
+        # ID mapping for event removal (protected by lock for thread safety)
         self.event_id_to_vector_id: Dict[str, int] = {}
         self.vector_id_to_event_id: Dict[int, str] = {}
         self.next_vector_id = 0
+        self._id_map_lock = threading.Lock()  # Protects ID mapping mutations
 
         # Training state
         self.is_trained = False
-        self.training_vectors: List[np.ndarray] = []
+        self.training_vectors: Deque[np.ndarray] = deque(maxlen=10000)
         self.min_training_size = 1000  # Minimum vectors before training
 
         # Initialize or load index
@@ -127,14 +130,15 @@ class VectorStore:
                     "awaiting_training": True,
                 }
 
-        # Assign vector IDs
+        # Assign vector IDs (thread-safe)
         vector_ids = []
-        for event_id in event_ids:
-            vid = self.next_vector_id
-            self.event_id_to_vector_id[event_id] = vid
-            self.vector_id_to_event_id[vid] = event_id
-            vector_ids.append(vid)
-            self.next_vector_id += 1
+        with self._id_map_lock:
+            for event_id in event_ids:
+                vid = self.next_vector_id
+                self.event_id_to_vector_id[event_id] = vid
+                self.vector_id_to_event_id[vid] = event_id
+                vector_ids.append(vid)
+                self.next_vector_id += 1
 
         # Add to index with explicit IDs
         vector_ids_array = np.array(vector_ids, dtype=np.int64)
@@ -219,11 +223,12 @@ class VectorStore:
         vector_ids_array = np.array(vector_ids_to_remove, dtype=np.int64)
         n_removed = self.index.remove_ids(vector_ids_array)
 
-        # Update ID mappings
-        for event_id in event_ids:
-            vid = self.event_id_to_vector_id.pop(event_id, None)
-            if vid is not None:
-                self.vector_id_to_event_id.pop(vid, None)
+        # Update ID mappings (thread-safe)
+        with self._id_map_lock:
+            for event_id in event_ids:
+                vid = self.event_id_to_vector_id.pop(event_id, None)
+                if vid is not None:
+                    self.vector_id_to_event_id.pop(vid, None)
 
         self._save()
 
@@ -297,7 +302,7 @@ class VectorStore:
 
     def _train_index(self):
         """Train index on accumulated training vectors."""
-        all_training = np.vstack(self.training_vectors)
+        all_training = np.vstack(list(self.training_vectors))
         n_vectors = all_training.shape[0]
 
         # Adjust nlist based on training size
@@ -315,7 +320,7 @@ class VectorStore:
         self.is_trained = True
 
         # Clear training buffer
-        self.training_vectors = []
+        self.training_vectors.clear()
         logger.info("IVF index trained successfully")
 
     def _should_retrain(self) -> bool:
@@ -360,7 +365,7 @@ class VectorStore:
         self.event_id_to_vector_id = {}
         self.vector_id_to_event_id = {}
         self.next_vector_id = 0
-        self.training_vectors = []
+        self.training_vectors.clear()
         self._save()
 
     def _save(self):

@@ -7,6 +7,8 @@ import json
 import time
 import logging
 import numpy as np
+import tempfile
+import os
 
 from emx_mcp.storage.vector_store import VectorStore
 from emx_mcp.storage.graph_store import GraphStore
@@ -103,100 +105,173 @@ class HierarchicalMemoryStore:
         surprise_scores: list | None = None,
     ) -> dict:
         """
-        Add episodic event with FULL INTEGRATION.
+        Add episodic event with FULL INTEGRATION and atomic rollback.
 
         Flow:
         1. Create EpisodicEvent object
         2. Check if needs disk offloading
         3. Add embeddings to vector store (IVF)
         4. Add to graph store for temporal relationships
-        5. Save event JSON (or offload to disk)
+        5. Save event JSON (or offload to disk) atomically
         6. Update local context
         7. Link to previous event in graph
+
+        Rollback on failure: graph → vector → disk/JSON → metadata
         """
         timestamp = time.time()
         token_count = len(tokens)
+        temp_file_path = None
+        offload_completed = False
+        vector_added = False
+        graph_added = False
 
-        # 1. Create event object
-        event = EpisodicEvent(
-            event_id=event_id,
-            tokens=tokens,
-            embeddings=embeddings,
-            boundaries=boundaries or [0, token_count],
-            timestamp=timestamp,
-            metadata=metadata,
-            surprise_scores=surprise_scores,
-        )
+        try:
+            # 1. Create event object
+            event = EpisodicEvent(
+                event_id=event_id,
+                tokens=tokens,
+                embeddings=embeddings,
+                boundaries=boundaries or [0, token_count],
+                timestamp=timestamp,
+                metadata=metadata,
+                surprise_scores=surprise_scores,
+            )
 
-        # 2. Check disk offloading
-        should_offload = self.disk_manager.should_offload(token_count)
+            # 2. Check disk offloading
+            should_offload = self.disk_manager.should_offload(token_count)
 
-        if should_offload:
-            # Offload full event to disk with mmap support
-            self.disk_manager.offload_event(event_id, event.to_dict())
-            logger.info(f"Event {event_id} offloaded to disk ({token_count} tokens)")
-            self.metadata["offloaded_events"] += 1
-        else:
-            # Save to JSON (fast access)
-            event_file = self.events_path / f"{event_id}.json"
-            with open(event_file, "w") as f:
-                json.dump(event.to_dict(), f)
+            if should_offload:
+                # Offload full event to disk with mmap support
+                self.disk_manager.offload_event(event_id, event.to_dict())
+                offload_completed = True
+                logger.info(f"Event {event_id} offloaded to disk ({token_count} tokens)")
+            else:
+                # Atomic JSON write: temp file + os.replace
+                event_file = self.events_path / f"{event_id}.json"
+                with tempfile.NamedTemporaryFile(
+                    mode="w",
+                    dir=str(self.events_path),
+                    delete=False,
+                    suffix=".tmp",
+                ) as tmp:
+                    json.dump(event.to_dict(), tmp)
+                    tmp.flush()
+                    os.fsync(tmp.fileno())  # Ensure write to disk
+                    temp_file_path = tmp.name
 
-            # Keep in cache
-            self.event_cache[event_id] = event
+                # Atomic rename (POSIX + Windows compatible)
+                os.replace(temp_file_path, str(event_file))
+                temp_file_path = None  # Successful rename, no cleanup needed
 
-            # Limit cache size
-            if len(self.event_cache) > self.max_cache_size:
-                # Remove oldest
-                oldest = min(
-                    self.event_cache.keys(), key=lambda k: self.event_cache[k].timestamp
-                )
-                del self.event_cache[oldest]
+                # Keep in cache
+                self.event_cache[event_id] = event
 
-        # 3. Add to vector store (IVF)
-        vector_result = self.vector_store.add_vectors(
-            vectors=np.array(embeddings, dtype=np.float32),
-            event_ids=[event_id] * len(embeddings),
-            metadata=[metadata or {}] * len(embeddings),
-        )
+                # Limit cache size
+                if len(self.event_cache) > self.max_cache_size:
+                    oldest = min(
+                        self.event_cache.keys(),
+                        key=lambda k: self.event_cache[k].timestamp,
+                    )
+                    del self.event_cache[oldest]
 
-        # 4. Add to graph store
-        self.graph_store.add_event(
-            event_id=event_id,
-            timestamp=timestamp,
-            token_count=token_count,
-            metadata=json.dumps(metadata) if metadata else None,
-        )
+            # 3. Add to vector store (IVF)
+            vector_result = self.vector_store.add_vectors(
+                vectors=np.array(embeddings, dtype=np.float32),
+                event_ids=[event_id] * len(embeddings),
+                metadata=[metadata or {}] * len(embeddings),
+            )
+            vector_added = True
 
-        # 5. Link to previous event (temporal relationship)
-        if self.metadata["event_count"] > 0:
-            # Get previous event ID
-            prev_event_id = f"event_{self.metadata['event_count'] - 1}"
-            try:
-                self.graph_store.link_events(
-                    from_id=prev_event_id,
-                    to_id=event_id,
-                    relationship="PRECEDES",
-                    lag=1,
-                )
-            except Exception as e:
-                logger.debug(f"Could not link to previous event: {e}")
+            # 4. Add to graph store
+            self.graph_store.add_event(
+                event_id=event_id,
+                timestamp=timestamp,
+                token_count=token_count,
+                metadata=json.dumps(metadata) if metadata else None,
+            )
+            graph_added = True
 
-        # 6. Update local context
-        self.local_context.extend(tokens)
+            # 5. Link to previous event (temporal relationship)
+            if self.metadata["event_count"] > 0:
+                prev_event_id = f"event_{self.metadata['event_count'] - 1}"
+                try:
+                    self.graph_store.link_events(
+                        from_id=prev_event_id,
+                        to_id=event_id,
+                        relationship="PRECEDES",
+                        lag=1,
+                    )
+                except Exception as e:
+                    logger.debug(f"Could not link to previous event: {e}")
 
-        # 7. Update metadata
-        self.metadata["event_count"] += 1
-        self.metadata["total_tokens"] += token_count
-        self._save_metadata()
+            # 6. Update local context
+            self.local_context.extend(tokens)
 
-        return {
-            "event_id": event_id,
-            "status": "added",
-            "offloaded": should_offload,
-            "vector_result": vector_result,
-            "token_count": token_count,
-        }
+            # 7. Update metadata
+            self.metadata["event_count"] += 1
+            self.metadata["total_tokens"] += token_count
+            if should_offload:
+                self.metadata["offloaded_events"] += 1
+            self._save_metadata()
+
+            return {
+                "event_id": event_id,
+                "status": "added",
+                "offloaded": should_offload,
+                "vector_result": vector_result,
+                "token_count": token_count,
+            }
+
+        except Exception as e:
+            # Rollback in reverse order
+            logger.error(f"Failed to add event {event_id}, rolling back: {e}")
+
+            # Rollback graph store
+            if graph_added:
+                try:
+                    self.graph_store.remove_event(event_id)
+                    logger.debug(f"Rolled back graph entry for {event_id}")
+                except Exception as rollback_err:
+                    logger.warning(f"Graph rollback failed: {rollback_err}")
+
+            # Rollback vector store
+            if vector_added:
+                try:
+                    self.vector_store.remove_vectors([event_id])
+                    logger.debug(f"Rolled back vector entries for {event_id}")
+                except Exception as rollback_err:
+                    logger.warning(f"Vector rollback failed: {rollback_err}")
+
+            # Rollback disk offload or JSON file
+            if offload_completed:
+                try:
+                    self.disk_manager.remove_event(event_id)
+                    logger.debug(f"Rolled back disk offload for {event_id}")
+                except Exception as rollback_err:
+                    logger.warning(f"Disk offload rollback failed: {rollback_err}")
+            else:
+                # Clean up temp file if atomic rename failed
+                if temp_file_path and Path(temp_file_path).exists():
+                    try:
+                        os.unlink(temp_file_path)
+                        logger.debug(f"Cleaned up temp file {temp_file_path}")
+                    except Exception as cleanup_err:
+                        logger.warning(f"Temp file cleanup failed: {cleanup_err}")
+
+                # Remove JSON file if it was created
+                event_file = self.events_path / f"{event_id}.json"
+                if event_file.exists():
+                    try:
+                        event_file.unlink()
+                        logger.debug(f"Rolled back JSON file for {event_id}")
+                    except Exception as rollback_err:
+                        logger.warning(f"JSON rollback failed: {rollback_err}")
+
+            # Remove from cache if added
+            if event_id in self.event_cache:
+                del self.event_cache[event_id]
+
+            raise  # Re-raise original exception after rollback
 
     def get_event(self, event_id: str) -> EpisodicEvent:
         """

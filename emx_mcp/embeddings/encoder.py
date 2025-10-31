@@ -22,7 +22,7 @@ class EmbeddingEncoder:
         self,
         model_name: str = "all-MiniLM-L6-v2",
         device: str = "cpu",
-        batch_size: int = 1,
+        batch_size: int = 32,
     ):
         """
         Initialize embedding encoder.
@@ -86,7 +86,10 @@ class EmbeddingEncoder:
 
         # Batch encode
         embeddings = self.model.encode(
-            texts, batch_size=self.batch_size, convert_to_numpy=True, show_progress_bar=False
+            texts,
+            batch_size=self.batch_size,
+            convert_to_numpy=True,
+            show_progress_bar=False,
         )
 
         return embeddings.astype(np.float32)
@@ -110,7 +113,9 @@ class EmbeddingEncoder:
 
         return embeddings.astype(np.float32)
 
-    def encode_tokens_with_context(self, tokens: List[str], context_window: int = 10) -> np.ndarray:
+    def encode_tokens_with_context(
+        self, tokens: List[str], context_window: int = 10
+    ) -> np.ndarray:
         """
         Encode tokens individually with local context for surprise calculation.
 
@@ -126,26 +131,24 @@ class EmbeddingEncoder:
             Array of embeddings of shape (n_tokens, embedding_dim)
         """
         embeddings = []
-        
+
         if not tokens:
             raise ValueError("Token list cannot be empty")
-        
+
         for i, token in enumerate(tokens):
             # Get context window
             start = max(0, i - context_window)
-            context_tokens = tokens[start:i+1]
-            
+            context_tokens = tokens[start : i + 1]
+
             # Encode token with context - join as text for sentence-transformers
             text = " ".join(context_tokens)
-            
+
             # Encode using sentence-transformers
             embedding = self.model.encode(
-                text, 
-                convert_to_numpy=True, 
-                show_progress_bar=False
+                text, convert_to_numpy=True, show_progress_bar=False
             )
             embeddings.append(embedding)
-        
+
         return np.array(embeddings, dtype=np.float32)
 
     def get_query_embedding(self, query: str) -> np.ndarray:

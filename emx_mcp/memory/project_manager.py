@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 class ProjectMemoryManager:
     """Manages per-project and global episodic memory with IVF indexing."""
-    
+
     encoder: EmbeddingEncoder
 
     def __init__(self, project_path: str, global_path: str, config: dict):
@@ -45,11 +45,11 @@ class ProjectMemoryManager:
                 batch_size=config["model"]["batch_size"],
             )
             logger.info(f"Embedding encoder initialized (dim={self.encoder.dimension})")
-            
+
             # Validate vector dimension matches model output
             configured_dim = config["storage"]["vector_dim"]
             actual_dim = self.encoder.dimension
-            
+
             if configured_dim != actual_dim:
                 error_msg = (
                     f"Vector dimension mismatch: EMX_STORAGE_VECTOR_DIM={configured_dim} "
@@ -65,7 +65,7 @@ class ProjectMemoryManager:
                 )
                 logger.error(error_msg)
                 raise ValueError(error_msg)
-                
+
         except ImportError as e:
             logger.error(
                 "Embedding encoder not available (sentence-transformers not installed)"
@@ -116,7 +116,7 @@ class ProjectMemoryManager:
         token_embeddings = self.encoder.encode_tokens_with_context(
             tokens, context_window=context_window
         )
-        
+
         # Identify initial boundaries using embedding-based surprise
         logger.info("Identifying boundaries using embedding-based surprise...")
         initial_boundaries = self.segmenter.identify_boundaries(
@@ -124,7 +124,7 @@ class ProjectMemoryManager:
             gamma=gamma,
             token_embeddings=token_embeddings,
         )
-        
+
         # Refine boundaries if requested
         if use_refinement:
             logger.info("Refining boundaries using embedding-based adjacency...")
@@ -135,13 +135,17 @@ class ProjectMemoryManager:
             )
         else:
             refined_boundaries = initial_boundaries
-        
+
         # Prepare results
         return {
             "initial_boundaries": initial_boundaries,
             "refined_boundaries": refined_boundaries,
             "num_events": len(refined_boundaries) - 1,
-            "method": "embedding-surprise+refinement" if use_refinement else "embedding-surprise",
+            "method": (
+                "embedding-surprise+refinement"
+                if use_refinement
+                else "embedding-surprise"
+            ),
             "context_window": context_window,
             "embedding_model": self.encoder.model_name,
             "success": True,
@@ -243,7 +247,9 @@ class ProjectMemoryManager:
         if not merge:
             self.clear_memory()
             with tarfile.open(input_path, "r:gz") as tar:
-                tar.extractall(self.project_path)
+                # Use 'data' filter (PEP 706) to prevent path traversal attacks
+                # Python 3.12+ only: blocks absolute paths, symlinks outside dest, devices
+                tar.extractall(self.project_path, filter="data")
                 # Reload store
                 self.project_store = HierarchicalMemoryStore(
                     str(self.memory_dir), self.config
@@ -282,5 +288,3 @@ class ProjectMemoryManager:
     def has_encoder(self) -> bool:
         """Check if embedding encoder is available."""
         return True
-
-
