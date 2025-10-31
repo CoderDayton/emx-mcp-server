@@ -25,5 +25,4 @@ wheels/
 
 # Project Files
 .github/copilot-instructions.md
-.memories/vector_index/*.bin
-.memories/vector_index/*.pkl
+.memories/
