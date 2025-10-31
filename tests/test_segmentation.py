@@ -21,7 +21,6 @@ class TestSurpriseSegmenter:
         return SurpriseSegmenter(
             gamma=segmentation_config["gamma"],
             window_offset=segmentation_config["window_offset"],
-            refinement_metric=segmentation_config["refinement_metric"],
         )
     
     @pytest.fixture
@@ -34,7 +33,6 @@ class TestSurpriseSegmenter:
         """Test SurpriseSegmenter initialization."""
         assert segmenter.gamma == segmentation_config["gamma"]
         assert segmenter.window_offset == segmentation_config["window_offset"]
-        assert segmenter.refinement_metric == segmentation_config["refinement_metric"]
     
     def test_compute_embedding_surprises(self, segmenter, sample_embeddings, segmentation_config):
         """Test embedding-based surprise calculation."""
@@ -165,159 +163,126 @@ class TestSurpriseSegmenter:
         assert len(boundaries) == len(set(boundaries))
     
     def test_identify_boundaries_comparison(self, segmenter, sample_tokens, sample_embeddings):
-        """Test that embedding approach gives different results than placeholders."""
+        """Test that different gamma values produce different boundary sets."""
         # Use a longer sequence for more meaningful comparison
         tokens = sample_tokens["coding_session"]
         
-        # Get boundaries with embeddings
-        embedding_boundaries = segmenter.identify_boundaries(
+        # Get boundaries with lower gamma (more boundaries)
+        boundaries_low = segmenter.identify_boundaries(
             tokens=tokens,
-            gamma=0.8,  # Use slightly different gamma for more boundaries
+            gamma=0.8,
             token_embeddings=sample_embeddings(len(tokens), dimension=384, seed=123)
         )
         
-        # Get boundaries with placeholder (different gamma)
-        placeholder_boundaries = segmenter.identify_boundaries(
+        # Get boundaries with higher gamma (fewer boundaries)
+        boundaries_high = segmenter.identify_boundaries(
             tokens=tokens,
-            gamma=1.2,  # Different gamma to ensure different results
-            token_probs=None  # This will use placeholders
+            gamma=1.5,
+            token_embeddings=sample_embeddings(len(tokens), dimension=384, seed=123)
         )
         
-        # Results should be different due to different gamma and different computation
-        # If they're still the same, that's actually fine - it means both methods
-        # are finding reasonable boundaries consistently
-        if embedding_boundaries != placeholder_boundaries:
-            # Different results - this is good, shows the methods differ
-            pass
-        else:
-            # Same results - also acceptable if boundaries are reasonable
-            # Check that we have at least 2 boundaries (start and end)
-            assert len(embedding_boundaries) >= 2
-            assert embedding_boundaries[0] == 0
-            assert embedding_boundaries[-1] == len(tokens) - 1
+        # Both should be valid boundary sets
+        assert len(boundaries_low) >= 2
+        assert len(boundaries_high) >= 2
+        assert boundaries_low[0] == 0
+        assert boundaries_high[0] == 0
+        assert boundaries_low[-1] == len(tokens) - 1
+        assert boundaries_high[-1] == len(tokens) - 1
+        
+        # Higher gamma should produce fewer or equal boundaries
+        assert len(boundaries_high) <= len(boundaries_low)
     
-    def test_refine_boundaries_with_embeddings(self, segmenter, sample_tokens, mock_embeddings):
-        """Test boundary refinement with embedding-based adjacency."""
+    def test_linear_coherence_segmentation(self, segmenter, sample_tokens, mock_embeddings):
+        """Test O(n) linear coherence-based segmentation."""
         tokens = sample_tokens["short_sequence"]
         
-        # Get initial boundaries
-        initial_boundaries = segmenter.identify_boundaries(
-            tokens=tokens,
-            gamma=1.0,
-            token_embeddings=mock_embeddings
+        # Segment using O(n) linear method
+        boundaries = segmenter.segment_by_coherence_linear(
+            token_embeddings=mock_embeddings,
+            window_size=5,
+            min_segment_length=20
         )
         
-        if len(initial_boundaries) > 2:  # Only test refinement if we have interior boundaries
-            # Refine boundaries
-            refined_boundaries = segmenter.refine_boundaries(
-                initial_boundaries=initial_boundaries,
-                tokens=tokens,
-                token_embeddings=mock_embeddings
-            )
-            
-            # Check properties
-            assert len(refined_boundaries) >= len(initial_boundaries)
-            assert refined_boundaries[0] == initial_boundaries[0]
-            assert refined_boundaries[-1] == initial_boundaries[-1]
-            assert refined_boundaries == sorted(refined_boundaries)
-        else:
-            # Should return initial boundaries unchanged
-            refined_boundaries = segmenter.refine_boundaries(
-                initial_boundaries=initial_boundaries,
-                tokens=tokens,
-                token_embeddings=mock_embeddings
-            )
-            assert refined_boundaries == initial_boundaries
+        # Check properties
+        assert len(boundaries) >= 2  # At least start and end
+        assert boundaries[0] == 0
+        assert boundaries[-1] == len(tokens) - 1
+        assert boundaries == sorted(boundaries)
     
-    def test_refine_boundaries_comparison(self, segmenter, sample_tokens, mock_embeddings):
-        """Test that refinement with embeddings vs attention keys gives different results."""
+    def test_linear_segmentation_comparison(self, segmenter, sample_tokens, mock_embeddings):
+        """Test that linear segmentation gives consistent results."""
         tokens = sample_tokens["short_sequence"]
         
-        # Get initial boundaries
-        initial_boundaries = segmenter.identify_boundaries(
-            tokens=tokens,
-            gamma=1.0,
-            token_embeddings=mock_embeddings
+        # Run twice - should be deterministic
+        boundaries1 = segmenter.segment_by_coherence_linear(
+            token_embeddings=mock_embeddings,
+            window_size=5,
+            min_segment_length=20
         )
         
-        if len(initial_boundaries) > 2:
-            # Refine with embeddings
-            embedding_refined = segmenter.refine_boundaries(
-                initial_boundaries=initial_boundaries,
-                tokens=tokens,
-                token_embeddings=mock_embeddings
-            )
-            
-            # Refine with placeholder
-            placeholder_refined = segmenter.refine_boundaries(
-                initial_boundaries=initial_boundaries,
-                tokens=tokens,
-                attention_keys=None
-            )
-            
-            # Should give different results
-            assert embedding_refined != placeholder_refined
+        boundaries2 = segmenter.segment_by_coherence_linear(
+            token_embeddings=mock_embeddings,
+            window_size=5,
+            min_segment_length=20
+        )
+        
+        # Should give identical results
+        assert boundaries1 == boundaries2
     
-    def test_backward_compatibility(self, segmenter, sample_tokens):
-        """Test that old API still works for backwards compatibility."""
+    def test_new_linear_api(self, segmenter, sample_tokens):
+        """Test that new O(n) linear API works correctly."""
         tokens = sample_tokens["short_sequence"]
         
-        # Test with token_probs (legacy)
-        boundaries_probs = segmenter.identify_boundaries(
+        # Generate embeddings
+        embeddings = np.random.randn(len(tokens), 384).astype('float32')
+        
+        # Test identify_boundaries (O(n))
+        boundaries_surprise = segmenter.identify_boundaries(
             tokens=tokens,
             gamma=1.0,
-            token_probs=np.random.random(len(tokens))  # Fake probabilities
+            token_embeddings=embeddings
         )
         
-        # Test with attention_keys (legacy)
-        if len(tokens) > 2:
-            initial_boundaries = segmenter.identify_boundaries(
-                tokens=tokens,
-                gamma=1.0,
-                token_embeddings=np.random.randn(len(tokens), 384)  # Use embeddings
-            )
-            
-            refined_keys = segmenter.refine_boundaries(
-                initial_boundaries=initial_boundaries,
-                tokens=tokens,
-                attention_keys=np.random.randn(len(tokens), 384)  # Fake attention keys
-            )
-            
-            # Should work without errors
-            assert len(refined_keys) >= len(initial_boundaries)
+        # Test segment_by_coherence_linear (O(n))
+        boundaries_coherence = segmenter.segment_by_coherence_linear(
+            token_embeddings=embeddings,
+            window_size=5,
+            min_segment_length=20
+        )
+        
+        # Both should return valid boundaries
+        assert len(boundaries_surprise) >= 2
+        assert len(boundaries_coherence) >= 2
+        assert boundaries_surprise[0] == 0
+        assert boundaries_coherence[0] == 0
+        assert boundaries_surprise[-1] == len(tokens) - 1
+        assert boundaries_coherence[-1] == len(tokens) - 1
     
     def test_surprise_calculation_methods(self, segmenter, sample_tokens, mock_embeddings):
-        """Test that all three surprise calculation methods work."""
+        """Test embedding-based surprise calculation consistency."""
         tokens = sample_tokens["short_sequence"]
         
-        # Method 1: Embedding-based (new)
-        boundaries_embedding = segmenter.identify_boundaries(
+        # Run boundary identification twice with same inputs - should be deterministic
+        boundaries1 = segmenter.identify_boundaries(
             tokens=tokens,
             gamma=1.0,
             token_embeddings=mock_embeddings
         )
         
-        # Method 2: LLM-based (legacy)
-        fake_probs = np.random.random(len(tokens))
-        boundaries_probs = segmenter.identify_boundaries(
+        boundaries2 = segmenter.identify_boundaries(
             tokens=tokens,
             gamma=1.0,
-            token_probs=fake_probs
+            token_embeddings=mock_embeddings
         )
         
-        # Method 3: Placeholder (testing)
-        boundaries_placeholder = segmenter.identify_boundaries(
-            tokens=tokens,
-            gamma=1.0,
-            token_probs=None  # Uses placeholders
-        )
+        # Both should produce identical results (deterministic)
+        assert boundaries1 == boundaries2
         
-        # All should produce valid boundary lists
-        for boundaries in [boundaries_embedding, boundaries_probs, boundaries_placeholder]:
-            assert len(boundaries) >= 2
-            assert boundaries[0] == 0
-            assert boundaries[-1] == len(tokens) - 1
-            assert boundaries == sorted(boundaries)
+        # Should produce valid boundary lists
+        assert len(boundaries1) >= 2
+        assert boundaries1[0] == 0
+        assert boundaries1[-1] == len(tokens) - 1
+        assert boundaries1 == sorted(boundaries1)
     
     def test_different_gamma_values(self, segmenter, sample_tokens, mock_embeddings):
         """Test that different gamma values produce different boundary patterns."""

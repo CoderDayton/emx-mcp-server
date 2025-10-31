@@ -4,7 +4,6 @@ Pytest configuration and shared fixtures for EMX-MCP-Server tests.
 
 import pytest
 import numpy as np
-from typing import List, Dict, Any
 import tempfile
 import shutil
 from pathlib import Path
@@ -80,6 +79,28 @@ def embedding_config():
 
 
 @pytest.fixture
+def hardware_enriched_config():
+    """
+    Embedding config with hardware detection applied.
+    
+    Returns concrete device/batch_size values via hardware.py detection.
+    Use this fixture for tests that instantiate EmbeddingEncoder directly
+    without going through ProjectMemoryManager.
+    """
+    from emx_mcp.utils.hardware import detect_device, detect_batch_size
+    
+    device = detect_device()
+    batch_size = detect_batch_size(device)
+    
+    return {
+        "model_name": "all-MiniLM-L6-v2",
+        "device": device,
+        "batch_size": batch_size,
+        "dimension": 384
+    }
+
+
+@pytest.fixture
 def segmentation_config():
     """Configuration for segmentation."""
     return {
@@ -127,13 +148,6 @@ def mock_project_config(temp_dir):
     global_path.mkdir(parents=True, exist_ok=True)
     
     config = {
-        "memory": {
-            "gamma": 1.0,
-            "window_offset": 128,
-            "refinement_metric": "modularity",
-            "ivf_nlist": 100,
-            "ivf_nprobe": 10
-        },
         "model": {
             "name": "all-MiniLM-L6-v2",
             "device": "cpu",
