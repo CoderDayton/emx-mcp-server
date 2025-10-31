@@ -8,7 +8,7 @@ from fastmcp import FastMCP
 from emx_mcp.memory.project_manager import ProjectMemoryManager
 from emx_mcp.utils.config import load_config
 from emx_mcp.utils.logging import setup_logging
-from emx_mcp.metrics import setup_metrics
+from emx_mcp.metrics import setup_metrics, get_health_tracker
 
 mcp = FastMCP("EMX Memory MCP Server", version="1.0.0")
 
@@ -72,6 +72,41 @@ def get_memory_status() -> dict:
             "nprobe": index_info.get("nprobe", 8),
             "buffered_vectors": index_info.get("buffered_vectors", 0),
         },
+    }
+
+
+@mcp.resource("metrics://health")
+def get_metrics_health() -> dict:
+    """
+    Get OpenTelemetry metrics export health status.
+    
+    Returns:
+        - Last successful export timestamp
+        - Total exports and failures
+        - Success rate
+        - Configured exporters (console, OTLP)
+        - Last error if any
+    
+    Use this to verify metrics are flowing to Grafana Cloud or other
+    observability backends. If exports are failing, check OTLP endpoint
+    configuration and network connectivity.
+    """
+    tracker = get_health_tracker()
+    
+    if tracker is None:
+        return {
+            "status": "not_initialized",
+            "message": "Metrics system not initialized. Check startup logs for errors.",
+        }
+    
+    health = tracker.get_health()
+    
+    return {
+        "status": "healthy" if health["healthy"] else "degraded",
+        "exporters": health["exporters"],
+        "last_success": health["last_success"],
+        "last_failure": health["last_failure"],
+        "stats": health["stats"],
     }
 
 
