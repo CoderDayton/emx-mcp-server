@@ -1,0 +1,29 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.log
+.DS_Store
+
+# Virtual environments
+.venv
+
+# Environment configuration (local overrides only)
+.env.local
+
+# Project Files
+.github/copilot-instructions.md
+.memories/vector_index/*.bin
+.memories/vector_index/*.pkl
