@@ -4,12 +4,11 @@ version = "1.0.0"
 description = "Infinite context MCP server with EM-LLM episodic memory using IVF indexing"
 authors = [{ name = "malu (Dayton Dunbar)", email = "coderdayton14@gmail.com" }]
 readme = "README.md"
-license = { file = "LICENSE.md" }
+license = "MIT"
 requires-python = ">=3.12"
 classifiers = [
   "Development Status :: 5 - Production/Stable",
   "Intended Audience :: Developers",
-  "License :: OSI Approved :: MIT License",
   "Operating System :: OS Independent",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.12",
