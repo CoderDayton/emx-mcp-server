@@ -110,6 +110,29 @@ def get_metrics_health() -> dict:
     }
 
 
+@mcp.resource("memory://metrics")
+def get_performance_metrics() -> dict:
+    """
+    Get real-time indexing performance metrics for production monitoring.
+    
+    Returns:
+        - embedding: Model config, device, batch size, throughput reference
+        - indexing: Vector counts, training status, IVF parameters, GPU status
+        - memory: Index size, metadata size, bytes per vector, total footprint
+        - storage_path: On-disk storage location
+    
+    Use this to monitor:
+    - Memory consumption trends (identify bloat before OOM)
+    - Indexing health (training status, nlist drift for retraining decisions)
+    - GPU utilization (verify GPU acceleration is active)
+    
+    For detailed latency percentiles (p50/p95/p99), query OTel histograms:
+    - emx.embedding.duration (embedding throughput analysis)
+    - emx.vector_search.duration (IVF search performance)
+    """
+    return manager.get_performance_metrics()
+
+
 @mcp.tool()
 def remember_context(
     content: str,
