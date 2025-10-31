@@ -1,6 +1,7 @@
 """OpenTelemetry metrics initialization."""
 
 import os
+import sys
 from typing import Optional
 
 from opentelemetry import metrics
@@ -49,12 +50,14 @@ def setup_metrics(config: dict) -> metrics.Meter:
     readers = []
     export_interval_ms = int(os.getenv("OTEL_METRIC_EXPORT_INTERVAL", "10000"))
     
-    # Always add console exporter for local debugging
-    console_reader = PeriodicExportingMetricReader(
-        ConsoleMetricExporter(),
-        export_interval_millis=export_interval_ms,
-    )
-    readers.append(console_reader)
+    # Add console exporter only if explicitly enabled (writes to stderr to avoid STDIO interference)
+    # For MCP servers using STDIO transport, use OTLP exporter instead
+    if os.getenv("OTEL_METRICS_CONSOLE", "false").lower() == "true":
+        console_reader = PeriodicExportingMetricReader(
+            ConsoleMetricExporter(out=sys.stderr),
+            export_interval_millis=export_interval_ms,
+        )
+        readers.append(console_reader)
     
     # Add OTLP exporter if endpoint configured
     otlp_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")

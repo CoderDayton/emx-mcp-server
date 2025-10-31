@@ -560,6 +560,48 @@ docker run -d -p 4318:4318 otel/opentelemetry-collector:latest
 
 ---
 
+#### `OTEL_METRICS_CONSOLE`
+**Default**: `false`  
+**Valid Values**: `true`, `false`  
+**Description**: Enable console metrics exporter (writes to stderr).
+
+**⚠️ IMPORTANT - STDIO Transport Constraint**:
+MCP servers use STDIO transport (stdin/stdout for JSON-RPC protocol communication). Any output to stdout corrupts the protocol stream, causing client connection failures.
+
+**Guidelines**:
+- **Production MCP servers**: Keep `false` and use OTLP exporter (`OTEL_EXPORTER_OTLP_ENDPOINT`)
+- **Development/debugging**: Set to `true` to see metrics in stderr
+- Console output goes to **stderr** (not stdout) to avoid interfering with MCP protocol
+- Only useful for local debugging; production should rely on OTLP backends
+
+**How to Monitor Console Metrics**:
+```bash
+# Redirect stderr to file while server runs
+uvx emx-mcp-server 2> metrics.log
+
+# Monitor metrics in real-time
+uvx emx-mcp-server 2>&1 | grep -A 50 "resource_metrics"
+
+# Or filter stderr in your MCP client logs
+```
+
+**Recommended Setup**:
+```json
+{
+  "env": {
+    "OTEL_METRICS_CONSOLE": "false",
+    "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318/v1/metrics"
+  }
+}
+```
+
+**Example (development with console metrics)**:
+```json
+"OTEL_METRICS_CONSOLE": "true"
+```
+
+---
+
 ### Logging Configuration
 
 #### `EMX_LOGGING_LEVEL`
