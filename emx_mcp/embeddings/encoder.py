@@ -20,6 +20,22 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Lazy-loaded metrics instruments
+_instruments = None
+
+
+def _get_instruments():
+    """Lazy-load metrics instruments to avoid circular imports."""
+    global _instruments
+    if _instruments is None:
+        try:
+            from emx_mcp.metrics.instruments import get_instruments
+            _instruments = get_instruments()
+        except (ImportError, RuntimeError):
+            # Metrics not initialized or unavailable
+            _instruments = False
+    return _instruments if _instruments is not False else None
+
 
 class EmbeddingEncoder:
     """
@@ -177,86 +193,107 @@ class EmbeddingEncoder:
         texts = [" ".join(tokens) for tokens in token_lists]
         batch_size = len(texts)
 
-        # Fixed stream context to properly wrap entire encoding operation
-        if stream is not None and self.torch_available and self.device == "cuda":
-            import torch
+        # Track embedding generation metrics
+        instruments = _get_instruments()
+        ctx = instruments.track_embedding(batch_size, self.device) if instruments else None
+        
+        try:
+            if ctx:
+                ctx.__enter__()
 
-            with torch.cuda.stream(stream):
+            # Fixed stream context to properly wrap entire encoding operation
+            if stream is not None and self.torch_available and self.device == "cuda":
+                import torch
+
+                with torch.cuda.stream(stream):
+                    embeddings = self.model.encode(
+                        texts,
+                        batch_size=self.batch_size,
+                        convert_to_numpy=False,
+                        show_progress_bar=False,
+                        device=self.device,
+                    )
+                    # model.encode with convert_to_numpy=False returns list of tensors
+                    if isinstance(embeddings, list):
+                        embeddings = torch.stack(embeddings)
+                    
+                    if embeddings.dtype != torch.float32:
+                        embeddings = embeddings.to(torch.float32)
+                    embeddings = embeddings.cpu().numpy().astype(np.float32)
+            else:
                 embeddings = self.model.encode(
                     texts,
                     batch_size=self.batch_size,
-                    convert_to_numpy=False,
+                    convert_to_numpy=True,
                     show_progress_bar=False,
                     device=self.device,
                 )
-                # model.encode with convert_to_numpy=False returns list of tensors
-                if isinstance(embeddings, list):
-                    embeddings = torch.stack(embeddings)
-                
-                if embeddings.dtype != torch.float32:
-                    embeddings = embeddings.to(torch.float32)
-                embeddings = embeddings.cpu().numpy().astype(np.float32)
-        else:
-            embeddings = self.model.encode(
-                texts,
-                batch_size=self.batch_size,
-                convert_to_numpy=True,
-                show_progress_bar=False,
-                device=self.device,
-            )
-            embeddings = embeddings.astype(np.float32)
+                embeddings = embeddings.astype(np.float32)
 
-        # Check if we should use pinned memory
-        should_pin = (
-            use_pinned_memory
-            and self.torch_available
-            and self.device == "cuda"
-            and self.gpu_config.get("enable_pinned_memory", False)
-            and batch_size >= self.gpu_config.get("pinned_min_batch_threshold", 64)
-        )
-
-        if not should_pin:
-            return embeddings
-
-        # Efficient pinned memory transfer
-        try:
-            dimension = int(self.dimension) if self.dimension else 384
-            pool = get_global_pool(
-                dimension=dimension,
-                max_batch_size=self.gpu_config.get("pinned_max_batch", 256),
-                buffer_size=self.gpu_config.get("pinned_buffer_size", 4),
+            # Check if we should use pinned memory
+            should_pin = (
+                use_pinned_memory
+                and self.torch_available
+                and self.device == "cuda"
+                and self.gpu_config.get("enable_pinned_memory", False)
+                and batch_size >= self.gpu_config.get("pinned_min_batch_threshold", 64)
             )
 
-            if pool is None:
-                logger.debug("Pinned memory pool unavailable, using regular numpy")
+            if not should_pin:
+                if ctx:
+                    ctx.__exit__(None, None, None)
                 return embeddings
 
-            buffer, release_callback = pool.acquire(batch_size)
-            buffer[:batch_size] = embeddings
+            # Efficient pinned memory transfer
+            try:
+                dimension = int(self.dimension) if self.dimension else 384
+                pool = get_global_pool(
+                    dimension=dimension,
+                    max_batch_size=self.gpu_config.get("pinned_max_batch", 256),
+                    buffer_size=self.gpu_config.get("pinned_buffer_size", 4),
+                )
 
-            if stream is not None:
-                try:
-                    from emx_mcp.gpu.stream_manager import StreamManager
+                if pool is None:
+                    logger.debug("Pinned memory pool unavailable, using regular numpy")
+                    if ctx:
+                        ctx.__exit__(None, None, None)
+                    return embeddings
 
-                    StreamManager.record_tensor_stream(buffer[:batch_size], stream)
-                except ImportError:
-                    logger.debug(
-                        "StreamManager not available, skipping stream recording"
-                    )
+                buffer, release_callback = pool.acquire(batch_size)
+                buffer[:batch_size] = embeddings
 
-            logger.debug(
-                f"Using pinned memory for batch_size={batch_size} "
-                f"(threshold={self.gpu_config.get('pinned_min_batch_threshold', 64)})"
-            )
+                if stream is not None:
+                    try:
+                        from emx_mcp.gpu.stream_manager import StreamManager
 
-            return buffer[:batch_size], release_callback
+                        StreamManager.record_tensor_stream(buffer[:batch_size], stream)
+                    except ImportError:
+                        logger.debug(
+                            "StreamManager not available, skipping stream recording"
+                        )
 
+                logger.debug(
+                    f"Using pinned memory for batch_size={batch_size} "
+                    f"(threshold={self.gpu_config.get('pinned_min_batch_threshold', 64)})"
+                )
+
+                if ctx:
+                    ctx.__exit__(None, None, None)
+                return buffer[:batch_size], release_callback
+
+            except Exception as e:
+                logger.warning(
+                    f"Failed to acquire pinned memory (batch_size={batch_size}): {e}. "
+                    f"Falling back to regular numpy array"
+                )
+                if ctx:
+                    ctx.__exit__(None, None, None)
+                return embeddings
+                
         except Exception as e:
-            logger.warning(
-                f"Failed to acquire pinned memory (batch_size={batch_size}): {e}. "
-                f"Falling back to regular numpy array"
-            )
-            return embeddings
+            if ctx:
+                ctx.__exit__(type(e), e, e.__traceback__)
+            raise
 
     def encode_individual_tokens(self, tokens: List[str]) -> np.ndarray:
         """

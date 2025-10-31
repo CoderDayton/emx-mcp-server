@@ -8,12 +8,24 @@ from fastmcp import FastMCP
 from emx_mcp.memory.project_manager import ProjectMemoryManager
 from emx_mcp.utils.config import load_config
 from emx_mcp.utils.logging import setup_logging
+from emx_mcp.metrics import setup_metrics
 
 mcp = FastMCP("EMX Memory MCP Server", version="1.0.0")
 
 # Initialize configuration and logging
 config = load_config()
 logger = setup_logging(config)
+
+# Initialize OpenTelemetry metrics
+try:
+    setup_metrics(config)
+    otlp_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+    if otlp_endpoint:
+        logger.info(f"Metrics initialized: console + OTLP ({otlp_endpoint})")
+    else:
+        logger.info("Metrics initialized: console exporter only")
+except Exception as e:
+    logger.warning(f"Failed to initialize metrics: {e}")
 
 # Detect project path
 project_path = os.getenv("EMX_PROJECT_PATH", os.getcwd())

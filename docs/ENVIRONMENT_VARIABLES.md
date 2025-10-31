@@ -476,6 +476,90 @@ EMX-MCP Server is configured via environment variables. When using with MCP clie
 
 ---
 
+### Metrics Configuration (OpenTelemetry)
+
+#### `OTEL_SERVICE_NAME`
+**Default**: `emx-mcp-server`  
+**Valid Values**: Any string  
+**Description**: Service name reported in metrics and traces.
+
+**Guidelines**:
+- Used to identify the service in observability backends
+- Keep it consistent across environments for easier tracking
+
+**Example**:
+```json
+"OTEL_SERVICE_NAME": "emx-memory-production"
+```
+
+---
+
+#### `OTEL_ENVIRONMENT`
+**Default**: `development`  
+**Valid Values**: Any string (common: `development`, `staging`, `production`)  
+**Description**: Environment label for metrics filtering and dashboard segmentation.
+
+**Guidelines**:
+- Helps distinguish metrics from different deployment environments
+- Use consistent naming across your infrastructure
+
+**Example**:
+```json
+"OTEL_ENVIRONMENT": "production"
+```
+
+---
+
+#### `OTEL_EXPORTER_OTLP_ENDPOINT`
+**Default**: Disabled (console export only)  
+**Valid Values**: HTTP/HTTPS URL (e.g., `http://localhost:4318/v1/metrics`)  
+**Description**: OTLP metrics endpoint for remote observability backends.
+
+**Guidelines**:
+- **If not set**: Metrics export to console only (lightweight, no external dependencies)
+- **If set**: Metrics export to both console AND OTLP endpoint (requires OpenTelemetry Collector or compatible backend)
+- Common endpoints:
+  - **Grafana Cloud**: `https://otlp-gateway-<region>.grafana.net/otlp/v1/metrics`
+  - **Honeycomb**: `https://api.honeycomb.io:443/v1/metrics`
+  - **Local Collector**: `http://localhost:4318/v1/metrics`
+
+**OTLP Collector Setup** (optional):
+```bash
+# Install OpenTelemetry Collector
+docker run -d -p 4318:4318 otel/opentelemetry-collector:latest
+
+# Or use Grafana Agent / Datadog Agent / Honeycomb's native OTLP endpoints
+```
+
+**Example (local collector)**:
+```json
+"OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318/v1/metrics"
+```
+
+**Example (Grafana Cloud)**:
+```json
+"OTEL_EXPORTER_OTLP_ENDPOINT": "https://otlp-gateway-prod-us-east-0.grafana.net/otlp/v1/metrics"
+```
+
+---
+
+#### `OTEL_METRIC_EXPORT_INTERVAL`
+**Default**: `10000` (10 seconds)  
+**Valid Range**: `1000` to `300000` (1 second to 5 minutes)  
+**Description**: Interval (in milliseconds) between metric exports.
+
+**Tuning Guidelines**:
+- **Low latency (1-5s)**: Real-time dashboards, fast anomaly detection
+- **Balanced (10-30s)**: Production default (good signal without backend overload)
+- **High efficiency (60-300s)**: Reduce backend costs, suitable for batch workloads
+
+**Example (30-second exports)**:
+```json
+"OTEL_METRIC_EXPORT_INTERVAL": "30000"
+```
+
+---
+
 ### Logging Configuration
 
 #### `EMX_LOGGING_LEVEL`

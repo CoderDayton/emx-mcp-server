@@ -17,6 +17,22 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Lazy-loaded metrics instruments
+_instruments = None
+
+
+def _get_instruments():
+    """Lazy-load metrics instruments to avoid circular imports."""
+    global _instruments
+    if _instruments is None:
+        try:
+            from emx_mcp.metrics.instruments import get_instruments
+            _instruments = get_instruments()
+        except (ImportError, RuntimeError):
+            # Metrics not initialized or unavailable
+            _instruments = False
+    return _instruments if _instruments is not False else None
+
 
 class GPUResourceManager:
     """
@@ -406,21 +422,37 @@ class VectorStore:
             logger.warning("Index not trained yet, returning empty results")
             return [], [], []
 
-        query = np.array(query, dtype=np.float32).reshape(1, -1)
-        distances, vector_ids = self.index.search(query, k)  # type: ignore[call-arg]
+        # Track search metrics
+        instruments = _get_instruments()
+        device = "cuda" if self.gpu_enabled else "cpu"
+        ctx = instruments.track_vector_search(1, k, device, False) if instruments else None
+        
+        try:
+            if ctx:
+                ctx.__enter__()
 
-        # Convert vector IDs back to event IDs
-        event_ids, valid_metadata, valid_distances = [], [], []
-        for i, vid in enumerate(vector_ids[0]):
-            if vid == -1:  # FAISS returns -1 for empty slots
-                continue
-            event_id = self.vector_id_to_event_id.get(int(vid))
-            if event_id and int(vid) < len(self.metadata):
-                event_ids.append(event_id)
-                valid_metadata.append(self.metadata[int(vid)])
-                valid_distances.append(float(distances[0][i]))
+            query = np.array(query, dtype=np.float32).reshape(1, -1)
+            distances, vector_ids = self.index.search(query, k)  # type: ignore[call-arg]
 
-        return event_ids, valid_distances, valid_metadata
+            # Convert vector IDs back to event IDs
+            event_ids, valid_metadata, valid_distances = [], [], []
+            for i, vid in enumerate(vector_ids[0]):
+                if vid == -1:  # FAISS returns -1 for empty slots
+                    continue
+                event_id = self.vector_id_to_event_id.get(int(vid))
+                if event_id and int(vid) < len(self.metadata):
+                    event_ids.append(event_id)
+                    valid_metadata.append(self.metadata[int(vid)])
+                    valid_distances.append(float(distances[0][i]))
+
+            if ctx:
+                ctx.__exit__(None, None, None)
+            return event_ids, valid_distances, valid_metadata
+            
+        except Exception as e:
+            if ctx:
+                ctx.__exit__(type(e), e, e.__traceback__)
+            raise
     
     def _should_use_batch(self, n_queries: int) -> bool:
         """
@@ -474,42 +506,63 @@ class VectorStore:
         n_queries = len(queries)
         
         # Adaptive routing: Use sequential for small CPU queries
-        if not force_batch and not self._should_use_batch(n_queries):
+        use_batch_api = force_batch or self._should_use_batch(n_queries)
+        
+        # Track search metrics
+        instruments = _get_instruments()
+        device = "cuda" if self.gpu_enabled else "cpu"
+        ctx = instruments.track_vector_search(n_queries, k, device, use_batch_api) if instruments else None
+        
+        try:
+            if ctx:
+                ctx.__enter__()
+        
+            if not use_batch_api:
+                logger.debug(
+                    f"Routing {n_queries} queries to sequential search "
+                    f"(CPU, below threshold of 100)"
+                )
+                results = []
+                for query in queries:
+                    event_ids, distances, metadata = self.search(query, k)
+                    results.append((event_ids, distances, metadata))
+                
+                if ctx:
+                    ctx.__exit__(None, None, None)
+                return results
+            
             logger.debug(
-                f"Routing {n_queries} queries to sequential search "
-                f"(CPU, below threshold of 100)"
+                f"Using batch search for {n_queries} queries "
+                f"(GPU={self.gpu_enabled}, force={force_batch})"
             )
+            
+            # Single FAISS call for all queries (GPU-efficient)
+            distances, vector_ids = self.index.search(queries, k)  # type: ignore[call-arg]
+            
+            # Convert results for each query
             results = []
-            for query in queries:
-                event_ids, distances, metadata = self.search(query, k)
-                results.append((event_ids, distances, metadata))
+            for query_idx in range(len(queries)):
+                event_ids, valid_metadata, valid_distances = [], [], []
+                
+                for i, vid in enumerate(vector_ids[query_idx]):
+                    if vid == -1:  # FAISS returns -1 for empty slots
+                        continue
+                    event_id = self.vector_id_to_event_id.get(int(vid))
+                    if event_id and int(vid) < len(self.metadata):
+                        event_ids.append(event_id)
+                        valid_metadata.append(self.metadata[int(vid)])
+                        valid_distances.append(float(distances[query_idx][i]))
+                
+                results.append((event_ids, valid_distances, valid_metadata))
+            
+            if ctx:
+                ctx.__exit__(None, None, None)
             return results
-        
-        logger.debug(
-            f"Using batch search for {n_queries} queries "
-            f"(GPU={self.gpu_enabled}, force={force_batch})"
-        )
-        
-        # Single FAISS call for all queries (GPU-efficient)
-        distances, vector_ids = self.index.search(queries, k)  # type: ignore[call-arg]
-        
-        # Convert results for each query
-        results = []
-        for query_idx in range(len(queries)):
-            event_ids, valid_metadata, valid_distances = [], [], []
             
-            for i, vid in enumerate(vector_ids[query_idx]):
-                if vid == -1:  # FAISS returns -1 for empty slots
-                    continue
-                event_id = self.vector_id_to_event_id.get(int(vid))
-                if event_id and int(vid) < len(self.metadata):
-                    event_ids.append(event_id)
-                    valid_metadata.append(self.metadata[int(vid)])
-                    valid_distances.append(float(distances[query_idx][i]))
-            
-            results.append((event_ids, valid_distances, valid_metadata))
-        
-        return results
+        except Exception as e:
+            if ctx:
+                ctx.__exit__(type(e), e, e.__traceback__)
+            raise
 
     def remove_vectors(self, event_ids: List[str]) -> dict:
         """
