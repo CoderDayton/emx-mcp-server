@@ -1,149 +1,237 @@
-# EMX-MCP Benchmarks
+# EMX Benchmarks
 
-Performance benchmarks for EMX-MCP Server's adaptive nlist optimization system.
+Comprehensive benchmarks for measuring EMX-LLM memory system performance across different workloads and configurations.
 
 ## Available Benchmarks
 
-### `adaptive_nlist_benchmark.py`
+### 1. E2E 30k Token Benchmark
 
-Tests FAISS IVF index performance with adaptive nlist optimization across realistic workload scales.
+**File**: `e2e_30k_tokens_benchmark.py`
 
-**What it measures:**
-- Index training time
-- Vector insertion throughput
-- Search latency (p50, p95, p99)
-- Optimization event frequency
-- Memory usage
+Simulates real-world LLM usage by processing a 30,000 token multi-domain conversation through the complete pipeline:
 
-**Usage:**
+**Pipeline Stages Measured**:
+- **Tokenization**: Whitespace-based splitting
+- **Segmentation**: O(n) linear boundary detection with configurable gamma
+- **Embedding**: sentence-transformers model inference (CPU/GPU)
+- **Indexing**: FAISS IVF with adaptive nlist
+- **Retrieval**: Semantic similarity + temporal contiguity expansion
 
+**Corpus Structure** (4 semantic domains):
+- Technical debugging session (~7k tokens)
+- Product planning discussion (~8k tokens)
+- Code review with architectural debate (~10k tokens)
+- Performance optimization analysis (~5k tokens)
+
+**Metrics Collected**:
+- End-to-end latency (remember + recall phases)
+- Per-stage timing breakdowns
+- Memory footprint (RSS delta in MB)
+- Segmentation accuracy (number of boundaries detected)
+- Index health (training status, nlist, vector count)
+- Retrieval latency (avg ms per query)
+
+## Running Benchmarks
+
+### Prerequisites
+
+Install dependencies:
 ```bash
-# Quick test (100k vectors, ~30 seconds)
-uv run python benchmarks/adaptive_nlist_benchmark.py --max-vectors 100000
-
-# Standard test (1M vectors, ~5 minutes)
-uv run python benchmarks/adaptive_nlist_benchmark.py --max-vectors 1000000
-
-# Large-scale test (10M vectors, ~1 hour)
-uv run python benchmarks/adaptive_nlist_benchmark.py --max-vectors 10000000
-
-# With GPU acceleration (if available)
-uv run python benchmarks/adaptive_nlist_benchmark.py --device cuda --max-vectors 1000000
-
-# Test without auto-retrain (manual mode)
-uv run python benchmarks/adaptive_nlist_benchmark.py --no-auto-retrain
-
-# Custom drift threshold (more aggressive optimization)
-uv run python benchmarks/adaptive_nlist_benchmark.py --drift-threshold 1.5
-
-# Save results to JSON
-uv run python benchmarks/adaptive_nlist_benchmark.py --output results.json
+uv sync
 ```
 
-**Expected Results (CPU, 1M vectors):**
+Ensure you have a valid `.env` configuration (or use defaults):
+```bash
+# Optional: Configure for GPU acceleration
+export EMX_MODEL_DEVICE=cuda
+export EMX_MODEL_BATCH_SIZE=64
 
-| Phase | Vectors | Duration | Throughput | nlist | Optimal | Drift |
-|-------|---------|----------|------------|-------|---------|-------|
-| Initial | 10k | ~2s | ~5k/s | 32 | 100 | 0.32x |
-| Growth | 100k | ~20s | ~4.5k/s | 316 | 316 | 1.0x |
-| Scale | 1M | ~200s | ~4k/s | 1000 | 1000 | 1.0x |
+# Optional: Tune segmentation sensitivity
+export EMX_MEMORY_GAMMA=1.0
+```
 
-**Optimization Events:**
-- Typically 2-3 retraining events from 10k→1M vectors
-- Each retrain takes ~100-200ms per 100k vectors
-- Drift threshold of 2.0x triggers optimization when `current/optimal > 2.0` or `< 0.5`
+### Execute E2E Benchmark
 
-**Search Latency (1M vectors):**
-- p50: 5-10ms
-- p95: 15-25ms
-- p99: 30-50ms
+```bash
+# Run with default config
+python benchmarks/e2e_30k_tokens_benchmark.py
 
-**Memory Usage:**
-- 100k vectors: ~50 MB
-- 1M vectors: ~500 MB
-- 10M vectors: ~5 GB
+# Or use uv
+uv run benchmarks/e2e_30k_tokens_benchmark.py
+```
+
+**Output**:
+- Real-time progress printed to stdout
+- Final summary with key metrics
+- JSON results saved to `benchmarks/benchmark_results.json`
+
+### Example Output
+
+```
+======================================================================
+EMX E2E Benchmark: 30k Token Corpus
+======================================================================
+Generated corpus: 30,247 tokens (target: 30,000)
+
+=== REMEMBER PHASE ===
+Tokenized: 30,247 tokens in 12.45ms
+Segmented: 8 events in 245.32ms
+  Method: linear_surprise
+  Boundaries: [0, 4102, 8334, 12891, 18765, 22103, 25890, 28456, 30247]
+Stored: 8 events in 3.42s
+  Memory delta: +87.3 MB
+  Index: trained=True, vectors=8, nlist=2
+
+=== RECALL PHASE ===
+  Query: 'debugging database connection pool exhaustion...' → 10 results in 18.23ms
+  Query: 'JWT authentication security best practices...' → 10 results in 15.67ms
+  Query: 'performance optimization JSON serialization...' → 10 results in 16.92ms
+  Query: 'file attachment feature roadmap planning...' → 10 results in 14.88ms
+  Query: 'rate limiting token refresh endpoint...' → 10 results in 17.41ms
+Completed: 5 queries in 0.08s (avg: 16.62ms per query)
+
+======================================================================
+BENCHMARK SUMMARY
+======================================================================
+Total tokens processed: 30,247
+Segmentation: 8 events in 245.32ms
+Storage (embed + index): 3.42s
+E2E Remember latency: 3.68s
+Memory footprint delta: +87.3 MB
+Retrieval (avg): 16.62ms per query
+Device: cuda
+Index: trained=True, nlist=2, vectors=8
+```
 
 ## Interpreting Results
 
-### Good Performance Indicators
+### Remember Phase Performance
 
-1. **Throughput stays consistent** (~4k-5k vectors/sec on CPU)
-2. **Few optimization events** (2-4 retrains from 10k→1M)
-3. **Drift ratio near 1.0x** after each phase
-4. **Search latency p95 < 50ms** at 1M vectors
+**Target**: `< 5s` for 30k tokens (typical LLM conversation length)
 
-### Performance Issues
+**Bottlenecks**:
+- **Embedding generation**: Dominant cost (~70-80% of total)
+  - GPU acceleration provides 3-5x speedup over CPU
+  - Batch size matters: 64 is optimal for most GPUs
+- **Segmentation**: Should be `< 500ms` (O(n) linear complexity)
+- **Index training**: Triggered when vector count exceeds `min_training_size` (default: 1000)
 
-| Symptom | Likely Cause | Solution |
-|---------|--------------|----------|
-| Throughput drops >50% | Too many retrains | Increase `drift_threshold` to 3.0-5.0 |
-| Search latency >100ms | nlist too small | Decrease `drift_threshold` to 1.5 |
-| Memory usage excessive | Large batch sizes | Reduce batch size in benchmark |
-| Many optimizations | Aggressive threshold | Use default 2.0 or higher |
+**Memory Usage**:
+- Expect `~3MB per 1000 tokens` for embeddings (384-dim float32)
+- RSS delta includes model weights (~90MB for `all-MiniLM-L6-v2`)
+
+### Recall Phase Performance
+
+**Target**: `< 50ms p95` for k=10 queries
+
+**Factors**:
+- **Index type**: IVF faster than Flat for >10k vectors
+- **nprobe**: Higher = more accurate but slower (default: 8)
+- **Contiguity expansion**: Adds temporal context but increases latency
+
+### Segmentation Quality
+
+**Expected boundaries**: 4-12 segments for 30k token corpus with gamma=1.0
+
+**Tuning gamma**:
+- `gamma < 1.0`: Fewer, larger segments (more tolerance)
+- `gamma > 1.0`: More, smaller segments (higher sensitivity)
+
+If you see only 1-2 segments, increase gamma or verify corpus has semantic diversity.
 
 ## Configuration Testing
 
-Test different adaptive settings:
+Test different configurations by setting environment variables:
 
+### CPU vs GPU Comparison
 ```bash
-# Conservative (minimize retraining)
-uv run python benchmarks/adaptive_nlist_benchmark.py \
-  --drift-threshold 5.0 \
-  --max-vectors 1000000
+# CPU baseline
+EMX_MODEL_DEVICE=cpu python benchmarks/e2e_30k_tokens_benchmark.py
 
-# Aggressive (optimize frequently)
-uv run python benchmarks/adaptive_nlist_benchmark.py \
-  --drift-threshold 1.5 \
-  --max-vectors 1000000
-
-# Manual mode (no auto-optimization)
-uv run python benchmarks/adaptive_nlist_benchmark.py \
-  --no-auto-retrain \
-  --max-vectors 1000000
+# GPU accelerated
+EMX_MODEL_DEVICE=cuda python benchmarks/e2e_30k_tokens_benchmark.py
 ```
 
-## Adding New Benchmarks
+### Segmentation Sensitivity
+```bash
+# Coarse segmentation (fewer events)
+EMX_MEMORY_GAMMA=0.5 python benchmarks/e2e_30k_tokens_benchmark.py
 
-When adding new benchmark scripts:
+# Fine segmentation (more events)
+EMX_MEMORY_GAMMA=2.0 python benchmarks/e2e_30k_tokens_benchmark.py
+```
 
-1. **Use realistic data**: Mimic actual embedding distributions (clustered, normalized)
-2. **Measure end-to-end**: Include index creation, training, search
-3. **Track resources**: Memory, CPU, disk I/O
-4. **Document expected results**: Add baseline metrics for comparison
-5. **Export results**: Support JSON output for automated testing
+### Batch Size Optimization
+```bash
+# Small batches (lower memory, slower)
+EMX_MODEL_BATCH_SIZE=32 python benchmarks/e2e_30k_tokens_benchmark.py
+
+# Large batches (higher memory, faster)
+EMX_MODEL_BATCH_SIZE=128 python benchmarks/e2e_30k_tokens_benchmark.py
+```
 
 ## CI Integration
 
-To run benchmarks in CI (quick mode):
+To track performance regressions, save baseline results:
 
 ```bash
-# Fast validation (10k vectors, <10 seconds)
-uv run python benchmarks/adaptive_nlist_benchmark.py \
-  --max-vectors 10000 \
-  --output benchmark_results.json
+# Run benchmark and save results
+python benchmarks/e2e_30k_tokens_benchmark.py
 
-# Check for regressions
-# (Compare against baseline in version control)
+# Compare with baseline
+python benchmarks/compare_results.py \
+  --baseline benchmarks/baseline_results.json \
+  --current benchmarks/benchmark_results.json
 ```
+
+**Regression thresholds**:
+- E2E latency increase > 20% → investigate
+- Memory footprint increase > 30% → investigate
+- Retrieval latency increase > 50% → investigate
 
 ## Troubleshooting
 
-**"Index not trained yet" warnings:**
-- Normal for first 1k vectors (training buffer)
-- If persists beyond 1k, check `min_training_size` setting
+### Benchmark Fails with CUDA OOM
 
-**OOM errors:**
-- Reduce `--max-vectors`
-- Benchmark generates vectors in batches to minimize memory
-- 1M vectors = ~500MB, 10M = ~5GB
+Reduce batch size or switch to CPU:
+```bash
+EMX_MODEL_BATCH_SIZE=32 python benchmarks/e2e_30k_tokens_benchmark.py
+```
 
-**Slow performance:**
-- Check CPU usage (should be near 100% during insertion)
-- GPU mode requires `sentence-transformers` with CUDA support
-- Disk I/O can bottleneck if `/tmp` is slow (change `store_path` in code)
+### Segmentation Produces Only 1 Event
 
-## Related Documentation
+Increase gamma sensitivity:
+```bash
+EMX_MEMORY_GAMMA=2.0 python benchmarks/e2e_30k_tokens_benchmark.py
+```
 
-- [Environment Variables](../docs/ENVIRONMENT_VARIABLES.md) - Configuration reference
-- [Performance Report](../docs/PERFORMANCE_REPORT.md) - Optimization analysis
-- [VectorStore Implementation](../emx_mcp/storage/vector_store.py) - Source code
+### Retrieval Returns Empty Results
+
+Check index training status in output. If `trained=False`, not enough vectors:
+- The benchmark should automatically train with 8+ events
+- Minimum training size is 1000 vectors (configurable via `EMX_STORAGE_MIN_TRAINING_SIZE`)
+
+### Import Errors
+
+Ensure dependencies installed:
+```bash
+uv sync
+```
+
+## Future Benchmarks
+
+**Planned**:
+- `batch_search_benchmark.py`: High-throughput batch retrieval (100-1000 queries)
+- `scaling_benchmark.py`: Memory growth with corpus size (10k → 1M tokens)
+- `latency_percentiles_benchmark.py`: p50/p95/p99 latency tracking
+- `gpu_stream_benchmark.py`: CUDA stream parallelism efficiency
+
+## Results Archive
+
+Historical results stored in `benchmarks/archive/` for regression tracking:
+```
+archive/
+  2025-10-31_cuda_baseline.json
+  2025-10-31_cpu_baseline.json
+  2025-11-01_after_ivf_optimization.json
+```
