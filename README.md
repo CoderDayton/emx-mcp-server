@@ -227,12 +227,18 @@ EMX-MCP Server is configured via **environment variables** set in your MCP clien
 }
 ```
 
-**📖 See [ENVIRONMENT_VARIABLES.md](docs/ENVIRONMENT_VARIABLES.md) for complete documentation** of all 22 configuration variables including:
-- Model selection and hardware acceleration
-- Boundary detection tuning (gamma, context windows)
-- Memory hierarchy sizing (init/local/episodic tiers)
-- FAISS index configuration
-- Recommended configurations for different use cases
+**📖 Configuration Documentation:**
+- **[ENVIRONMENT_VARIABLES.md](docs/ENVIRONMENT_VARIABLES.md)** - Complete reference for all 22 configuration variables:
+  - Model selection and hardware acceleration
+  - Boundary detection tuning (gamma, context windows)
+  - Memory hierarchy sizing (init/local/episodic tiers)
+  - FAISS index configuration
+  - Recommended configurations for different use cases
+
+- **[GRAFANA_CLOUD_SETUP.md](docs/GRAFANA_CLOUD_SETUP.md)** - Metrics and observability setup:
+  - Send OpenTelemetry metrics to Grafana Cloud for real-time dashboards
+  - Monitor embedding performance, search latency, memory usage
+  - Simple environment variable configuration (no containers required)
 
 ## 📝 How to Build
 
