@@ -39,24 +39,25 @@ This approach ensures high performance, scalability, and seamless integration wi
 
 ### Version 1.0.0 (Latest)
 
-🚀 **Major Release: Embedding-Based Architecture**
+🚀 **Major Release: Workflow-Oriented MCP Tools**
+- **Consolidated Tool API**: Reduced from 11 low-level tools to 5 high-level workflow tools following [MCP best practices](https://modelcontextprotocol.io/)
+- **Token-Efficient Responses**: Added `format` parameter (concise vs detailed) - 72% token reduction for concise mode
+- **Natural Language Interface**: Tools designed around agent workflows (remember → recall) rather than system primitives
+- **Single Resource**: Consolidated 3 resources into unified `memory://status` for system health
+
+🧠 **Embedding-Based Architecture**
 - **Complete Embedding-Based Implementation**: Replaced LLM-dependent operations with embedding-based approaches for maximum compatibility
-- **Enhanced Surprise Calculation**: Now uses semantic distances from local context centroids for boundary detection
+- **Enhanced Surprise Calculation**: Uses semantic distances from local context centroids for boundary detection
 - **Improved Attention Approximation**: Embedding cosine similarity replaces attention keys for boundary refinement
 - **Optimized Performance**: 100x faster than previous LLM-based approach while maintaining semantic accuracy
 
 🔧 **New Features**
+- **Adaptive GPU Routing**: Batch search automatically routes CPU (<100 queries) vs GPU (all batches) for optimal performance
+- **Response Format Control**: All retrieval tools support concise (IDs + snippets) and detailed (full events) modes
 - **Context Window Support**: Configurable context windows for embedding-based surprise calculation
-- **Semantic Shift Detection**: Improved detection of topic changes and phase transitions
-- **Comprehensive Test Suite**: 100% test coverage with pytest-asyncio validation
-- **Enhanced Configuration**: Flexible model configuration and performance tuning
+- **Comprehensive Test Suite**: 110/111 tests passing (99.1% success rate) with pytest-asyncio validation
 
-🧠 **Technical Improvements**
-- **Sentence-Transformers Integration**: Native support for all-MiniLM-L6-v2 and compatible models
-- **Memory-Efficient Processing**: Reduced memory footprint while maintaining accuracy
-- **Backwards Compatibility**: Legacy API support for gradual migration
-
-> **Migration Note**: This release maintains full backwards compatibility. No breaking changes were introduced.
+> **Migration Note**: This is a **breaking change** for direct tool usage. Legacy tools replaced with consolidated workflow tools. See tool documentation for new API.
 
 ## 🧠 How It Works
 
@@ -140,19 +141,71 @@ Most AI agents support MCP integration. Add the server configuration:
 
 ### Available MCP Tools
 
-Once integrated, your AI agent will have access to these memory tools:
+Once integrated, your AI agent will have access to these high-level memory tools:
 
-#### 📝 Memory Operations
-- **`add_episodic_event`** - Store new experiences with automatic embedding
-- **`retrieve_memories`** - Search for relevant past experiences
-- **`segment_experience`** - Detect episode boundaries in conversations
-- **`get_memory_stats`** - View memory usage and statistics
+#### 📝 Core Memory Operations
+- **`remember_context(content, metadata)`** - Store conversations/documents with automatic segmentation and embedding
+- **`recall_memories(query, scope, format, k)`** - Semantic search across project/global memory with concise or detailed results
+- **`search_memory_batch(queries, k, format)`** - Advanced: High-throughput batch retrieval with adaptive CPU/GPU routing
 
-#### 🔧 Maintenance
-- **`optimize_memory`** - Clean up and optimize storage
-- **`retrain_index`** - Rebuild FAISS index for better performance
-- **`export_project_memory`** - Backup memory to file
-- **`import_project_memory`** - Restore memory from backup
+#### 🔧 System Management
+- **`manage_memory(action, options)`** - Administrative operations: stats, retrain, optimize, clear
+- **`transfer_memory(action, path, merge)`** - Import/export memory archives for backup or migration
+
+#### 📊 Resources
+- **`memory://status`** - Comprehensive memory system health and statistics
+
+> **Design Philosophy**: Tools are consolidated around **workflows** (remember → recall) rather than low-level primitives. All tools support **format control** (concise vs detailed) for token efficiency.
+
+### Tool Usage Examples
+
+#### Store a Conversation
+```python
+# AI agent calls this automatically when you ask to "remember this"
+remember_context(
+    content="Discussed React hooks optimization. useCallback prevents re-renders...",
+    metadata={"topic": "react", "date": "2025-10-31"},
+    auto_segment=True,  # Automatically splits into semantic episodes
+    gamma=1.0
+)
+# Returns: {"event_ids": ["event_1730368800"], "num_segments": 3, "index_status": "healthy"}
+```
+
+#### Retrieve Relevant Context
+```python
+# AI agent calls this when you ask "what did we discuss about React?"
+recall_memories(
+    query="React hooks optimization techniques",
+    scope="project",  # Search current project only
+    format="concise",  # Return IDs + snippets (token-efficient)
+    k=10
+)
+# Returns: {"memories": [{"event_id": "...", "snippet": "useCallback prevents...", "relevance_score": 0.92}]}
+```
+
+#### Batch Analysis
+```python
+# For high-throughput retrieval (testing, bulk analysis)
+search_memory_batch(
+    queries=["debugging", "performance", "testing"],
+    k=5,
+    format="concise"  # Adaptive routing: GPU batches all, CPU sequential if <100 queries
+)
+# Returns: {"results": [...], "performance": {"used_batch_api": true, "routing_reason": "gpu_enabled"}}
+```
+
+#### System Maintenance
+```python
+# Get memory statistics
+manage_memory(action="stats")
+# Returns: {"project_events": 1247, "index_info": {"trained": true, "total_vectors": 15382}}
+
+# Optimize storage (prune old events)
+manage_memory(action="optimize", options={"prune_old_events": true})
+
+# Backup memory
+transfer_memory(action="export", path="/backups/memory-2025-10-31.tar.gz")
+```
 
 ### Configuration
 
