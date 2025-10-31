@@ -121,6 +121,16 @@ class HealthTrackingExporter(MetricExporter):
     def force_flush(self, timeout_millis: float = 10000) -> bool:
         """Force flush inner exporter."""
         return self.inner.force_flush(timeout_millis)
+    
+    def __getattr__(self, name: str):
+        """
+        Proxy all other attributes to inner exporter.
+        
+        Required for OpenTelemetry SDK internal attributes like
+        _preferred_temporality, _preferred_aggregation, etc.
+        Future-proofs against SDK changes.
+        """
+        return getattr(self.inner, name)
 
 
 def setup_metrics(config: dict) -> metrics.Meter:
