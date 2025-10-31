@@ -186,6 +186,8 @@ def setup_metrics(config: dict) -> metrics.Meter:
         _health_tracker.exporters.append("console")
     
     # Add OTLP exporter if endpoint configured
+    # Note: OTLPMetricExporter automatically reads OTEL_EXPORTER_OTLP_HEADERS
+    # environment variable, so we don't need to parse it manually
     otlp_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
     if otlp_endpoint:
         otlp_exporter = HealthTrackingExporter(
