@@ -1,8 +1,9 @@
-"""Project-based memory manager with IVF-indexed storage."""
+"""Project-based memory manager with IVF-indexed storage + O(n) linear segmentation only."""
 
 import time
 import tarfile
 import numpy as np
+import uuid
 from pathlib import Path
 from typing import Optional, Any, Dict, List
 import logging
@@ -12,6 +13,7 @@ from emx_mcp.memory.storage import HierarchicalMemoryStore
 from emx_mcp.memory.segmentation import SurpriseSegmenter
 from emx_mcp.memory.retrieval import TwoStageRetrieval
 from emx_mcp.embeddings.encoder import EmbeddingEncoder
+from emx_mcp.utils.hardware import enrich_config_with_hardware
 
 logger = logging.getLogger(__name__)
 
@@ -24,45 +26,56 @@ class ProjectMemoryManager:
     def __init__(self, project_path: str, global_path: str, config: dict):
         self.project_path = Path(project_path)
         self.global_path = Path(global_path)
-        self.config = config
+        
+        # Enrich config with hardware detection (device/batch_size)
+        # This makes config the single source of truth for runtime values
+        enriched_config = enrich_config_with_hardware(config)
+        self.config = enriched_config
+
         # Initialize .memories folder in project
         self.memory_dir = self.project_path / ".memories"
-        self.memory_dir.mkdir(exist_ok=True)
+        self.memory_dir.mkdir(parents=True, exist_ok=True)
+
         # Initialize global memories
         self.global_path.mkdir(parents=True, exist_ok=True)
+
         # Create project and global stores
-        self.project_store = HierarchicalMemoryStore(str(self.memory_dir), config)
-        self.global_store = HierarchicalMemoryStore(str(self.global_path), config)
+        self.project_store = HierarchicalMemoryStore(str(self.memory_dir), enriched_config)
+        self.global_store = HierarchicalMemoryStore(str(self.global_path), enriched_config)
+
         # Initialize segmentation and retrieval
-        self.segmenter = SurpriseSegmenter(gamma=config["memory"]["gamma"])
-        self.retrieval = TwoStageRetrieval(self.project_store, config)
+        self.segmenter = SurpriseSegmenter(gamma=enriched_config["memory"]["gamma"])
+        self.retrieval = TwoStageRetrieval(self.project_store, enriched_config)
 
         # Initialize embedding encoder (required for server-side embedding generation)
         try:
             self.encoder = EmbeddingEncoder(
-                model_name=config["model"]["name"],
-                device=config["model"]["device"],
-                batch_size=config["model"]["batch_size"],
+                model_name=enriched_config["model"]["name"],
+                device=enriched_config["model"]["device"],
+                batch_size=enriched_config["model"]["batch_size"],
+                gpu_config=enriched_config.get("gpu"),
             )
+
             logger.info(f"Embedding encoder initialized (dim={self.encoder.dimension})")
 
             # Validate vector dimension matches model output
-            configured_dim = config["storage"]["vector_dim"]
+            configured_dim = enriched_config["storage"]["vector_dim"]
             actual_dim = self.encoder.dimension
 
             if configured_dim != actual_dim:
                 error_msg = (
                     f"Vector dimension mismatch: EMX_STORAGE_VECTOR_DIM={configured_dim} "
-                    f"but model '{config['model']['name']}' outputs {actual_dim}-dimensional vectors.\n"
+                    f"but model '{enriched_config['model']['name']}' outputs {actual_dim}-dimensional vectors.\n"
                     f"\n"
                     f"Common model dimensions:\n"
-                    f"  - all-MiniLM-L6-v2: 384\n"
-                    f"  - all-mpnet-base-v2: 768\n"
-                    f"  - paraphrase-multilingual-MiniLM-L12-v2: 384\n"
+                    f" - all-MiniLM-L6-v2: 384\n"
+                    f" - all-mpnet-base-v2: 768\n"
+                    f" - paraphrase-multilingual-MiniLM-L12-v2: 384\n"
                     f"\n"
                     f"Fix: Set EMX_STORAGE_VECTOR_DIM={actual_dim} or choose a different model.\n"
                     f"See: ENVIRONMENT_VARIABLES.md#emx_storage_vector_dim"
                 )
+
                 logger.error(error_msg)
                 raise ValueError(error_msg)
 
@@ -70,12 +83,13 @@ class ProjectMemoryManager:
             logger.error(
                 "Embedding encoder not available (sentence-transformers not installed)"
             )
+
             raise ImportError(
                 "sentence-transformers required. Install with: pip install sentence-transformers"
             ) from e
 
         logger.info(f"Project memory initialized at {self.memory_dir}")
-        logger.info("Using IVF indexing for optimal performance")
+        logger.info("Using O(n) linear segmentation for all document sizes")
 
     def get_local_context(self) -> list:
         """Get project's current local context."""
@@ -93,62 +107,54 @@ class ProjectMemoryManager:
         self,
         tokens: list,
         gamma: float,
-        use_refinement: bool,
         context_window: int = 10,
     ) -> dict:
         """
-        Segment tokens into episodic events using embedding-based surprise calculation.
+        Segment tokens into episodic events using embedding-based surprise.
 
-        This method uses sentence-transformers embeddings to compute semantic-based
-        surprise and adjacency matrices, replacing the previous LLM-based approach.
+        Uses embedding-based surprise calculation and O(n) linear segmentation.
+        Pure O(n) complexity - no O(n³) refinement overhead.
 
         Args:
             tokens: List of token strings
-            gamma: Surprise threshold sensitivity
-            use_refinement: Apply boundary refinement
+            gamma: Surprise threshold sensitivity (higher = fewer boundaries)
             context_window: Context window size for embedding-based surprise calculation
 
         Returns:
-            Dictionary containing segmentation results and metadata
+            Dictionary containing segmentation results:
+            - initial_boundaries: Surprise-based boundaries (O(n) method)
+            - refined_boundaries: Same as initial (no refinement needed with O(n))
+            - num_events: Number of events detected
+            - method: "embedding-surprise-linear"
+            - context_window: Context window used
+            - embedding_model: Model name
+            - success: True if segmentation succeeded
         """
         # Generate per-token embeddings with local context
-        logger.info(f"Computing embeddings for {len(tokens)} tokens...")
+        logger.info(f"Computing embeddings for {len(tokens)} tokens (O(n))...")
         token_embeddings = self.encoder.encode_tokens_with_context(
             tokens, context_window=context_window
         )
 
-        # Identify initial boundaries using embedding-based surprise
-        logger.info("Identifying boundaries using embedding-based surprise...")
-        initial_boundaries = self.segmenter.identify_boundaries(
-            tokens=tokens,
-            gamma=gamma,
-            token_embeddings=token_embeddings,
+        # Use O(n) linear segmentation for all documents
+        logger.info(f"Segmenting {len(tokens)} tokens using O(n) linear method...")
+        boundaries = self.segmenter.segment_by_coherence_linear(
+            token_embeddings,
+            window_size=5,
+            min_segment_length=20,
+            surprise_threshold=None,
         )
-
-        # Refine boundaries if requested
-        if use_refinement:
-            logger.info("Refining boundaries using embedding-based adjacency...")
-            refined_boundaries = self.segmenter.refine_boundaries(
-                initial_boundaries=initial_boundaries,
-                tokens=tokens,
-                token_embeddings=token_embeddings,
-            )
-        else:
-            refined_boundaries = initial_boundaries
 
         # Prepare results
         return {
-            "initial_boundaries": initial_boundaries,
-            "refined_boundaries": refined_boundaries,
-            "num_events": len(refined_boundaries) - 1,
-            "method": (
-                "embedding-surprise+refinement"
-                if use_refinement
-                else "embedding-surprise"
-            ),
+            "initial_boundaries": boundaries,
+            "refined_boundaries": boundaries,  # No refinement needed
+            "num_events": len(boundaries) - 1,
+            "method": "embedding-surprise-linear",
             "context_window": context_window,
             "embedding_model": self.encoder.model_name,
             "success": True,
+            "complexity": "O(n)",
         }
 
     def retrieve_memories(
@@ -182,11 +188,15 @@ class ProjectMemoryManager:
             embeddings = self.encoder.encode_individual_tokens(tokens)
             logger.info(f"Generated embeddings locally for {len(tokens)} tokens")
 
-        event_id = f"event_{int(time.time() * 1000)}"
+        # Generate UUID-based event ID (no collisions, works across sessions)
+        event_id = f"event_{uuid.uuid4().hex}"
+
         result = self.project_store.add_event(
             event_id, tokens, embeddings.tolist(), metadata or {}
         )
+
         result["event_id"] = event_id
+
         return result
 
     def remove_events(self, event_ids: list[str]) -> dict:
@@ -202,16 +212,20 @@ class ProjectMemoryManager:
     ) -> dict:
         """Optimize memory storage."""
         results: Dict[str, List[Dict[str, Any]]] = {"optimizations": []}
+
         if prune_old_events:
             pruned = self.project_store.prune_least_accessed(limit=1000)
+
             results["optimizations"].append(
                 {"type": "pruning", "events_removed": pruned}
             )
+
         if compress_embeddings:
             # Future: implement PQ compression
             results["optimizations"].append(
                 {"type": "compression", "status": "not_implemented"}
             )
+
         return results
 
     def get_stats(self) -> dict:
@@ -234,26 +248,28 @@ class ProjectMemoryManager:
     def export_memory(self, output_path: str | Path) -> dict:
         """Export project memory to tar.gz."""
         output_path = Path(output_path)
+
         with tarfile.open(output_path, "w:gz") as tar:
             tar.add(self.memory_dir, arcname=".memories")
-            return {
-                "status": "exported",
-                "path": str(output_path),
-                "size_bytes": output_path.stat().st_size,
-            }
+
+        return {
+            "status": "exported",
+            "path": str(output_path),
+            "size_bytes": output_path.stat().st_size,
+        }
 
     def import_memory(self, input_path: str, merge: bool) -> dict:
         """Import memory from tar.gz."""
         if not merge:
             self.clear_memory()
-            with tarfile.open(input_path, "r:gz") as tar:
-                # Use 'data' filter (PEP 706) to prevent path traversal attacks
-                # Python 3.12+ only: blocks absolute paths, symlinks outside dest, devices
-                tar.extractall(self.project_path, filter="data")
-                # Reload store
-                self.project_store = HierarchicalMemoryStore(
-                    str(self.memory_dir), self.config
-                )
+
+        with tarfile.open(input_path, "r:gz") as tar:
+            # Use 'data' filter (PEP 706) to prevent path traversal attacks
+            # Python 3.12+ only: blocks absolute paths, symlinks outside dest, devices
+            tar.extractall(self.project_path, filter="data")
+
+        # Reload store
+        self.project_store = HierarchicalMemoryStore(str(self.memory_dir), self.config)
 
         return {
             "status": "imported",
@@ -281,7 +297,7 @@ class ProjectMemoryManager:
             tokens: List of token strings
 
         Returns:
-            Embedings array
+            Embeddings array
         """
         return self.encoder.encode_individual_tokens(tokens)
 

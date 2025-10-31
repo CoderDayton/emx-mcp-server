@@ -1,6 +1,11 @@
 """
-Surprise-based event segmentation with boundary refinement.
+Surprise-based event segmentation with O(n) linear complexity.
 Implements Algorithm 1 from EM-LLM paper (ICLR 2025).
+
+OPTIMIZED: Pure O(n) linear complexity - NO O(n³) refinement code.
+- Embedding-based surprise calculation: O(n)
+- Linear coherence segmentation: O(n)
+- No refinement overhead
 """
 
 import numpy as np
@@ -12,17 +17,18 @@ logger = logging.getLogger(__name__)
 
 class SurpriseSegmenter:
     """
-    Implements surprise-based event segmentation with boundary refinement.
+    Implements surprise-based event segmentation with O(n) linear complexity.
 
-    Uses Bayesian surprise (negative log-likelihood) to identify event
-    boundaries, then refines them using graph-theoretic metrics.
+    Uses embedding-based surprise to identify event boundaries efficiently.
+    Two complementary methods (both O(n)):
+    1. identify_boundaries() - Direct boundary detection from surprise
+    2. segment_by_coherence_linear() - Sliding window coherence-based boundaries
     """
 
     def __init__(
         self,
         gamma: float = 1.0,
         window_offset: int = 128,
-        refinement_metric: str = "modularity",
     ):
         """
         Initialize surprise segmenter.
@@ -30,13 +36,10 @@ class SurpriseSegmenter:
         Args:
             gamma: Surprise threshold sensitivity (higher = fewer boundaries)
             window_offset: Window size for adaptive threshold calculation
-            refinement_metric: "modularity" or "conductance"
         """
         self.gamma = gamma
         self.window_offset = window_offset
-        self.refinement_metric = refinement_metric
-
-        logger.info(f"SurpriseSegmenter initialized (gamma={gamma})")
+        logger.info(f"SurpriseSegmenter initialized (gamma={gamma}, O(n) complexity)")
 
     def compute_surprise(self, token_probs: np.ndarray) -> np.ndarray:
         """
@@ -56,7 +59,6 @@ class SurpriseSegmenter:
         self,
         tokens: list,
         gamma: Optional[float] = None,
-        token_probs: Optional[np.ndarray] = None,
         token_embeddings: Optional[np.ndarray] = None,
     ) -> List[int]:
         """
@@ -66,36 +68,29 @@ class SurpriseSegmenter:
         -log P(x_t | x_1,...,x_{t-1}) > T
         where T = μ_{t-τ:t} + γσ_{t-τ:t}
 
-        Supports multiple surprise calculation methods:
-        1. Embedding-based (recommended): Uses semantic distances from local context
-        2. LLM-based: Uses token probabilities from language model
-        3. Placeholder: Random surprises for testing
+        Uses embedding-based surprise calculation (O(n) complexity).
 
         Args:
             tokens: List of tokens
             gamma: Override default gamma
-            token_probs: Token probabilities (alternative method)
             token_embeddings: Pre-computed embeddings for embedding-based surprise
 
         Returns:
             List of boundary positions
+
+        Complexity: O(n)
         """
         if gamma is None:
             gamma = self.gamma
 
-        # Get surprise values using preferred method
+        # Get surprise values using embedding-based method
         if token_embeddings is not None:
-            # Primary method: embedding-based surprise calculation
             surprises = self._compute_embedding_surprises(token_embeddings)
-            logger.debug("Using embedding-based surprise calculation")
-        elif token_probs is not None:
-            # Legacy method: LLM token probabilities
-            surprises = self.compute_surprise(token_probs)
-            logger.debug("Using LLM token probabilities for surprise calculation")
+            logger.debug("Using embedding-based surprise calculation (O(n))")
         else:
-            # Fallback: placeholder surprises for testing
-            surprises = self._get_placeholder_surprises(len(tokens))
-            logger.debug("Using placeholder surprises (testing mode)")
+            raise ValueError(
+                "token_embeddings required for embedding-based surprise calculation"
+            )
 
         boundaries = [0]  # Start with first token
 
@@ -117,262 +112,90 @@ class SurpriseSegmenter:
             boundaries.append(len(tokens) - 1)
 
         logger.info(
-            f"Identified {len(boundaries)} boundaries from {len(tokens)} tokens"
+            f"Identified {len(boundaries)} boundaries from {len(tokens)} tokens (O(n) method)"
+        )
+
+        return boundaries
+
+    def segment_by_coherence_linear(
+        self,
+        token_embeddings: np.ndarray,
+        window_size: int = 5,
+        min_segment_length: int = 20,
+        surprise_threshold: Optional[float] = None,
+    ) -> List[int]:
+        """
+        O(n) linear complexity segmentation using coherence-based boundaries.
+
+        Uses sliding window coherence scores to identify topic boundaries.
+        Based on TextTiling algorithm (Hearst, 1997).
+
+        Args:
+            token_embeddings: Array of shape (n_tokens, embedding_dim)
+            window_size: Size of sliding window for local coherence (5-10 recommended)
+            min_segment_length: Minimum tokens per segment
+            surprise_threshold: Threshold for boundary detection (auto if None)
+
+        Returns:
+            List of boundary indices
+
+        Complexity: O(n) where n = number of tokens
+        """
+        n_tokens = len(token_embeddings)
+
+        if n_tokens < min_segment_length * 2:
+            return [0, n_tokens - 1]
+
+        # Step 1: Compute coherence scores (O(n))
+        coherence_scores = self._compute_coherence_linear(token_embeddings, window_size)
+
+        # Step 2: Find local minima (O(n))
+        candidate_boundaries = self._find_local_minima_linear(coherence_scores)
+
+        # Step 3: Compute depth scores (O(n))
+        depth_scores = self._compute_depth_linear(
+            coherence_scores, candidate_boundaries
+        )
+
+        # Step 4: Apply threshold (O(n))
+        if surprise_threshold is None:
+            if len(depth_scores) > 0:
+                mu = np.mean(depth_scores)
+                sigma = np.std(depth_scores)
+                surprise_threshold = float(mu - 0.5 * sigma)
+            else:
+                surprise_threshold = 0.0
+
+        boundaries = [0]
+        for idx, depth in zip(candidate_boundaries, depth_scores):
+            if depth > surprise_threshold and idx >= min_segment_length:
+                boundaries.append(idx)
+
+        # Step 5: Enforce minimum segment length (O(n))
+        boundaries = self._enforce_min_length_linear(
+            boundaries, n_tokens, min_segment_length
+        )
+
+        if boundaries[-1] != n_tokens - 1:
+            boundaries.append(n_tokens - 1)
+
+        logger.info(
+            f"Linear segmentation found {len(boundaries)} boundaries (O(n) method)"
         )
         return boundaries
 
-    def refine_boundaries(
-        self,
-        initial_boundaries: List[int],
-        tokens: list,
-        attention_keys: Optional[np.ndarray] = None,
-        token_embeddings: Optional[np.ndarray] = None,
-        max_search_range: int = 512,
-    ) -> List[int]:
-        """
-        Refine boundaries using modularity or conductance maximization.
+    # ========================
+    # Private Helper Methods
+    # ========================
 
-        Implements boundary refinement step from EM-LLM Algorithm 1.
-
-        Supports multiple adjacency computation methods:
-        1. Embedding-based (recommended): Uses cosine similarity of embeddings
-        2. LLM-based: Uses attention keys from transformer layers
-        3. Placeholder: Random adjacency for testing
-
-        Args:
-            initial_boundaries: Initial surprise-based boundaries
-            tokens: Token list
-            attention_keys: Key vectors for computing similarity (alternative method)
-            token_embeddings: Pre-computed embeddings for embedding-based adjacency
-            max_search_range: Maximum tokens to search per boundary
-
-        Returns:
-            Refined boundary positions
-        """
-        if len(initial_boundaries) < 2:
-            return initial_boundaries
-
-        # Get adjacency matrix using preferred method
-        if token_embeddings is not None:
-            # Primary method: embedding-based adjacency computation
-            adjacency = self._compute_embedding_adjacency(token_embeddings)
-            logger.debug("Using embedding-based adjacency computation")
-        elif attention_keys is not None:
-            # Legacy method: LLM attention keys
-            adjacency = self._compute_adjacency(attention_keys)
-            logger.debug("Using LLM attention keys for adjacency computation")
-        else:
-            # Fallback: placeholder adjacency for testing
-            adjacency = self._get_placeholder_adjacency(len(tokens))
-            logger.debug("Using placeholder adjacency (testing mode)")
-
-        refined = [initial_boundaries[0]]  # Keep first boundary
-
-        for i in range(1, len(initial_boundaries) - 1):
-            alpha = initial_boundaries[i - 1]
-            beta = initial_boundaries[i]
-            next_boundary = initial_boundaries[i + 1]
-
-            # Limit search range
-            search_start = max(alpha + 1, beta - max_search_range // 2)
-            search_end = min(next_boundary - 1, beta + max_search_range // 2)
-
-            best_score = (
-                -float("inf")
-                if self.refinement_metric == "modularity"
-                else float("inf")
-            )
-            best_pos = beta
-
-            # Search for optimal position
-            for pos in range(search_start, search_end + 1):
-                test_boundaries = refined + [pos]
-
-                if self.refinement_metric == "modularity":
-                    score = self._compute_modularity(
-                        adjacency, test_boundaries, len(tokens)
-                    )
-                    if score > best_score:
-                        best_score = score
-                        best_pos = pos
-                else:  # conductance
-                    score = self._compute_conductance(adjacency, test_boundaries)
-                    if score < best_score:  # Lower is better for conductance
-                        best_score = score
-                        best_pos = pos
-
-            refined.append(best_pos)
-            logger.debug(
-                f"Refined boundary {i}: {beta} -> {best_pos} (score={best_score:.4f})"
-            )
-
-        # Keep last boundary
-        refined.append(initial_boundaries[-1])
-
-        logger.info(f"Boundary refinement complete ({len(refined)} boundaries)")
-        return refined
-
-    def _compute_adjacency(self, key_vectors: np.ndarray) -> np.ndarray:
-        """
-        Compute similarity-based adjacency matrix from attention keys.
-
-        Args:
-            key_vectors: Attention key vectors (n_tokens, key_dim)
-
-        Returns:
-            Adjacency matrix (n_tokens, n_tokens)
-        """
-        # Normalize keys
-        norms = np.linalg.norm(key_vectors, axis=1, keepdims=True)
-        normalized_keys = key_vectors / (norms + 1e-8)
-
-        # Compute dot product similarity
-        adjacency = np.dot(normalized_keys, normalized_keys.T)
-
-        # Ensure positive values (similarity in [0, 1])
-        adjacency = (adjacency + 1) / 2
-
-        return adjacency
-
-    def _compute_modularity(
-        self, adjacency: np.ndarray, boundaries: List[int], n_tokens: int
-    ) -> float:
-        """
-        Compute modularity score (Equation 3 from EM-LLM paper).
-
-        Q = 1/(4m) * Σ[A_ij - (k_i * k_j)/(2m)] * δ(c_i, c_j)
-
-        Args:
-            adjacency: Adjacency matrix
-            boundaries: Current boundary positions
-            n_tokens: Total number of tokens
-
-        Returns:
-            Modularity score (higher is better)
-        """
-        m = np.sum(adjacency) / 2  # Total edge weight
-        if m == 0:
-            return 0.0
-
-        communities = self._boundaries_to_communities(boundaries, n_tokens)
-        Q = 0.0
-
-        for community in communities:
-            if len(community) == 0:
-                continue
-
-            for i in community:
-                k_i = np.sum(adjacency[i, :])
-                for j in community:
-                    k_j = np.sum(adjacency[j, :])
-                    Q += adjacency[i, j] - (k_i * k_j) / (2 * m)
-
-        return Q / (4 * m)
-
-    def _compute_conductance(
-        self, adjacency: np.ndarray, boundaries: List[int]
-    ) -> float:
-        """
-        Compute conductance score (Equation 4 from EM-LLM paper).
-
-        Lower conductance = better community structure.
-
-        Args:
-            adjacency: Adjacency matrix
-            boundaries: Current boundary positions
-
-        Returns:
-            Conductance score (lower is better)
-        """
-        communities = self._boundaries_to_communities(boundaries, len(adjacency))
-        min_conductance = float("inf")
-
-        for community in communities:
-            if len(community) == 0:
-                continue
-
-            # Internal volume
-            vol_S = np.sum(adjacency[np.ix_(community, community)])
-
-            # Cut (edges leaving community)
-            all_indices = set(range(len(adjacency)))
-            outside = list(all_indices - set(community))
-
-            if len(outside) == 0:
-                continue
-
-            cut = np.sum(adjacency[np.ix_(community, outside)])
-
-            # Conductance = cut / min(vol(S), vol(V\S))
-            vol_complement = np.sum(adjacency[np.ix_(outside, outside)])
-
-            if vol_S > 0 and vol_complement > 0:
-                conductance = cut / min(vol_S, vol_complement)
-                min_conductance = min(min_conductance, conductance)
-
-        return min_conductance if min_conductance != float("inf") else 0.0
-
-    def _boundaries_to_communities(
-        self, boundaries: List[int], n_tokens: int
-    ) -> List[List[int]]:
-        """
-        Convert boundary list to community assignments.
-
-        Args:
-            boundaries: Boundary positions
-            n_tokens: Total number of tokens
-
-        Returns:
-            List of communities (each community is a list of token indices)
-        """
-        communities = []
-        for i in range(len(boundaries) - 1):
-            start = boundaries[i]
-            end = boundaries[i + 1]
-            communities.append(list(range(start, end)))
-
-        # Ensure the last community extends to n_tokens if needed
-        if boundaries and boundaries[-1] < n_tokens:
-            communities.append(list(range(boundaries[-1], n_tokens)))
-
-        return communities
-
-    def _get_placeholder_surprises(self, n_tokens: int) -> np.ndarray:
-        """
-        Generate placeholder surprise values for testing.
-
-        In production, replace with actual LLM token probabilities.
-        """
-        # Exponential distribution simulates realistic surprise
-        return np.random.exponential(2.0, n_tokens)
-
-    def _get_placeholder_adjacency(self, n_tokens: int) -> np.ndarray:
-        """
-        Generate placeholder adjacency matrix for testing.
-
-        In production, compute from actual attention keys.
-        """
-        # Create block-diagonal-ish structure (similar tokens cluster)
-        adjacency = np.random.rand(n_tokens, n_tokens) * 0.3
-
-        # Add block structure
-        block_size = 50
-        for i in range(0, n_tokens, block_size):
-            end = min(i + block_size, n_tokens)
-            adjacency[i:end, i:end] += 0.5
-
-        # Make symmetric
-        adjacency = (adjacency + adjacency.T) / 2
-
-        return adjacency
-
-    def _compute_embedding_surprises(self, token_embeddings: np.ndarray, window: int = 10) -> np.ndarray:
+    def _compute_embedding_surprises(
+        self, token_embeddings: np.ndarray, window: int = 10
+    ) -> np.ndarray:
         """
         Compute surprises from embedding distances to local context centroids.
 
-        This method implements embedding-based surprise calculation as an alternative
-        to LLM token probabilities. Surprise is computed as the distance between
-        a token's embedding and the centroid of its local context window.
+        Surprise is computed as the distance between a token's embedding and
+        the centroid of its local context window.
 
         Args:
             token_embeddings: Array of shape (n_tokens, embedding_dim)
@@ -380,22 +203,24 @@ class SurpriseSegmenter:
 
         Returns:
             Array of surprise values of shape (n_tokens,)
+
+        Complexity: O(n)
         """
         n_tokens = len(token_embeddings)
         surprises = np.zeros(n_tokens, dtype=np.float32)
-        
+
         for t in range(window, n_tokens):
             # Get context window (previous 'window' tokens)
-            context = token_embeddings[t - window:t]
+            context = token_embeddings[t - window : t]
             context_centroid = np.mean(context, axis=0)
-            
-            # Compute distance from current token to context centroid
+
+            # Compute cosine distance from current token to context centroid
             current_embedding = token_embeddings[t]
-            distance = np.linalg.norm(current_embedding - context_centroid)
-            
-            # Store as surprise value
-            surprises[t] = distance
-        
+
+            # Use 1 - cosine_similarity as surprise (more different = more surprising)
+            cosine_sim = self._cosine_sim(current_embedding, context_centroid)
+            surprises[t] = 1.0 - cosine_sim  # Higher when less similar to context
+
         # Handle tokens at the beginning (no full context)
         if n_tokens > window:
             # Use mean surprise for first 'window' tokens
@@ -404,8 +229,112 @@ class SurpriseSegmenter:
         else:
             # For very short sequences, use a default surprise
             surprises[:] = 1.0
-        
+
         return surprises
+
+    def _compute_coherence_linear(
+        self, embeddings: np.ndarray, window_size: int
+    ) -> np.ndarray:
+        """
+        Compute coherence between adjacent blocks. O(n) complexity.
+
+        Complexity: O(n)
+        """
+        n_tokens = len(embeddings)
+        coherence_scores = np.zeros(n_tokens - 1)
+
+        for i in range(n_tokens - 1):
+            left_start = max(0, i - window_size + 1)
+            left_end = i + 1
+            right_start = i + 1
+            right_end = min(n_tokens, i + window_size + 1)
+
+            left_block = embeddings[left_start:left_end].mean(axis=0)
+            right_block = embeddings[right_start:right_end].mean(axis=0)
+
+            # Cosine similarity
+            coherence_scores[i] = self._cosine_sim(left_block, right_block)
+
+        return coherence_scores
+
+    def _cosine_sim(self, a: np.ndarray, b: np.ndarray) -> float:
+        """Compute cosine similarity between two vectors."""
+        norm_a = np.linalg.norm(a)
+        norm_b = np.linalg.norm(b)
+        if norm_a == 0 or norm_b == 0:
+            return 0.0
+        return np.dot(a, b) / (norm_a * norm_b)
+
+    def _find_local_minima_linear(self, scores: np.ndarray) -> List[int]:
+        """
+        Find local minima in coherence scores. O(n) complexity.
+
+        Complexity: O(n)
+        """
+        minima = []
+        n = len(scores)
+        for i in range(1, n - 1):
+            if scores[i] < scores[i - 1] and scores[i] < scores[i + 1]:
+                minima.append(i)
+        return minima
+
+    def _compute_depth_linear(
+        self, coherence_scores: np.ndarray, candidate_boundaries: List[int]
+    ) -> List[float]:
+        """
+        Compute depth score for each boundary. O(n) complexity.
+
+        Complexity: O(n) - each boundary examined once
+        """
+        depth_scores = []
+
+        for boundary_idx in candidate_boundaries:
+            # Find peaks to left and right
+            left_peak = coherence_scores[boundary_idx]
+            for i in range(boundary_idx - 1, -1, -1):
+                if coherence_scores[i] >= coherence_scores[i + 1]:
+                    left_peak = max(left_peak, coherence_scores[i])
+                else:
+                    break
+
+            right_peak = coherence_scores[boundary_idx]
+            for i in range(boundary_idx + 1, len(coherence_scores)):
+                if coherence_scores[i] >= coherence_scores[i - 1]:
+                    right_peak = max(right_peak, coherence_scores[i])
+                else:
+                    break
+
+            depth = 0.5 * (
+                (left_peak - coherence_scores[boundary_idx])
+                + (right_peak - coherence_scores[boundary_idx])
+            )
+            depth_scores.append(depth)
+
+        return depth_scores
+
+    def _enforce_min_length_linear(
+        self, boundaries: List[int], n_tokens: int, min_length: int
+    ) -> List[int]:
+        """
+        Remove boundaries creating segments shorter than min_length. O(n) complexity.
+
+        Complexity: O(n)
+        """
+        if not boundaries:
+            return []
+
+        filtered = []
+        last_boundary = 0
+
+        for boundary in boundaries:
+            if boundary - last_boundary >= min_length:
+                filtered.append(boundary)
+                last_boundary = boundary
+
+        if n_tokens - last_boundary < min_length and filtered:
+            filtered.pop()
+
+        return filtered
 
     def _compute_embedding_adjacency(self, token_embeddings: np.ndarray) -> np.ndarray:
         """
@@ -413,25 +342,27 @@ class SurpriseSegmenter:
 
         This method creates an adjacency matrix where edge weights represent
         the semantic similarity between tokens, computed using cosine similarity
-        of their embeddings. This approximates attention-based similarity.
+        of their embeddings.
 
         Args:
             token_embeddings: Array of shape (n_tokens, embedding_dim)
 
         Returns:
             Adjacency matrix of shape (n_tokens, n_tokens) with values in [0, 1]
+
+        Complexity: O(n²) - matrix multiplication, but needed for future use
         """
         # Normalize embeddings to unit vectors for cosine similarity
         norms = np.linalg.norm(token_embeddings, axis=1, keepdims=True)
         normalized_embeddings = token_embeddings / (norms + 1e-8)
-        
+
         # Compute cosine similarity matrix
         adjacency = np.dot(normalized_embeddings, normalized_embeddings.T)
-        
-        # Map from [-1, 1] range to [0, 1] range for graph algorithms
+
+        # Map from [-1, 1] range to [0, 1] range
         adjacency = (adjacency + 1) / 2
-        
-        # Ensure diagonal is 1 (token always "similar" to itself)
+
+        # Ensure diagonal is 1
         np.fill_diagonal(adjacency, 1.0)
-        
+
         return adjacency

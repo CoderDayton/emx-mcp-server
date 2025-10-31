@@ -2,18 +2,22 @@
 
 from collections import deque
 from pathlib import Path
-from typing import List, Dict, Deque
+from typing import List, Dict, Deque, Optional, TYPE_CHECKING
 import json
 import time
 import logging
 import numpy as np
 import tempfile
 import os
+import uuid
 
 from emx_mcp.storage.vector_store import VectorStore
 from emx_mcp.storage.graph_store import GraphStore
 from emx_mcp.storage.disk_manager import DiskManager
 from emx_mcp.models.events import EpisodicEvent
+
+if TYPE_CHECKING:
+    from emx_mcp.gpu.stream_manager import StreamManager
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +31,12 @@ class HierarchicalMemoryStore:
     - Tier 3: Episodic events (IVF + Graph + Disk)
     """
 
-    def __init__(self, storage_path: str, config: dict):
+    def __init__(
+        self, 
+        storage_path: str, 
+        config: dict,
+        stream_manager: Optional["StreamManager"] = None,
+    ):
         self.storage_path = Path(storage_path)
         self.storage_path.mkdir(parents=True, exist_ok=True)
         self.config = config
@@ -51,6 +60,8 @@ class HierarchicalMemoryStore:
             str(vector_path),
             dimension=config["storage"]["vector_dim"],
             nprobe=config["storage"].get("nprobe", 8),
+            auto_retrain=config["storage"].get("auto_retrain", True),
+            nlist_drift_threshold=config["storage"].get("nlist_drift_threshold", 2.0),
         )
         self.graph_store = GraphStore(str(graph_path))
         self.disk_manager = DiskManager(
@@ -66,14 +77,22 @@ class HierarchicalMemoryStore:
         self.event_cache: Dict[str, EpisodicEvent] = {}  # event_id -> EpisodicEvent
         self.max_cache_size = 1000
 
+        # GPU stream manager (optional for pipelined operations)
+        self.stream_manager = stream_manager
+
         # Metadata
         self.metadata_path = self.storage_path / "metadata.json"
-        self._load_metadata()
+        
+        # Track previous event ID for temporal linking (initialized before loading)
+        self.last_event_id: Optional[str] = None
+        self._load_metadata()  # May override last_event_id from persisted metadata
 
         logger.info(f"HierarchicalMemoryStore initialized at {storage_path}")
         logger.info(
             f"Disk offloading enabled for events >{self.disk_manager.offload_threshold} tokens"
         )
+        if self.stream_manager:
+            logger.info("GPU stream pipelining enabled for event storage")
 
     def _load_metadata(self):
         """Load or initialize metadata."""
@@ -87,11 +106,16 @@ class HierarchicalMemoryStore:
                 "event_count": 0,
                 "total_tokens": 0,
                 "offloaded_events": 0,
+                "last_event_id": None,
             }
+        
+        # Load last_event_id from metadata
+        self.last_event_id = self.metadata.get("last_event_id")
 
     def _save_metadata(self):
         """Save metadata to disk."""
         self.metadata["last_modified"] = time.time()
+        self.metadata["last_event_id"] = self.last_event_id
         with open(self.metadata_path, "w") as f:
             json.dump(self.metadata, f, indent=2)
 
@@ -103,11 +127,12 @@ class HierarchicalMemoryStore:
         metadata: dict,
         boundaries: list | None = None,
         surprise_scores: list | None = None,
+        use_streams: bool = False,
     ) -> dict:
         """
         Add episodic event with FULL INTEGRATION and atomic rollback.
 
-        Flow:
+        Flow (standard):
         1. Create EpisodicEvent object
         2. Check if needs disk offloading
         3. Add embeddings to vector store (IVF)
@@ -116,7 +141,26 @@ class HierarchicalMemoryStore:
         6. Update local context
         7. Link to previous event in graph
 
+        Flow (with use_streams=True):
+        1-2. Same as standard
+        3a. Acquire CUDA stream from pool
+        3b. GPU transfer on stream (non-blocking)
+        3c. CPU/disk operations run concurrently with GPU
+        3d. Release stream back to pool
+
         Rollback on failure: graph → vector → disk/JSON → metadata
+        
+        Args:
+            event_id: Unique event identifier
+            tokens: List of tokens in event
+            embeddings: List of embedding vectors
+            metadata: Event metadata dict
+            boundaries: Segment boundaries (default: [0, len(tokens)])
+            surprise_scores: Surprise scores for segmentation (optional)
+            use_streams: Enable GPU stream pipelining (requires stream_manager)
+        
+        Returns:
+            Dictionary with add status and performance info
         """
         timestamp = time.time()
         token_count = len(tokens)
@@ -124,6 +168,7 @@ class HierarchicalMemoryStore:
         offload_completed = False
         vector_added = False
         graph_added = False
+        used_stream = False
 
         try:
             # 1. Create event object
@@ -174,15 +219,30 @@ class HierarchicalMemoryStore:
                     )
                     del self.event_cache[oldest]
 
-            # 3. Add to vector store (IVF)
-            vector_result = self.vector_store.add_vectors(
-                vectors=np.array(embeddings, dtype=np.float32),
-                event_ids=[event_id] * len(embeddings),
-                metadata=[metadata or {}] * len(embeddings),
-            )
+            # 3. Add to vector store (IVF) - with optional stream pipelining
+            if use_streams and self.stream_manager is not None:
+                # GPU-accelerated path with stream pipelining
+                with self.stream_manager.acquire_stream() as stream:
+                    vector_result = self.vector_store.add_vectors(
+                        vectors=np.array(embeddings, dtype=np.float32),
+                        event_ids=[event_id] * len(embeddings),
+                        metadata=[metadata or {}] * len(embeddings),
+                        stream=stream,  # Non-blocking GPU transfer on stream
+                    )
+                    used_stream = True
+                    # Stream released automatically by context manager
+                    # CPU continues while GPU transfer happens asynchronously
+                    logger.debug(f"Event {event_id} added with GPU stream pipelining")
+            else:
+                # Standard synchronous path
+                vector_result = self.vector_store.add_vectors(
+                    vectors=np.array(embeddings, dtype=np.float32),
+                    event_ids=[event_id] * len(embeddings),
+                    metadata=[metadata or {}] * len(embeddings),
+                )
             vector_added = True
 
-            # 4. Add to graph store
+            # 4. Add to graph store (CPU/disk operation, can overlap with GPU)
             self.graph_store.add_event(
                 event_id=event_id,
                 timestamp=timestamp,
@@ -192,17 +252,20 @@ class HierarchicalMemoryStore:
             graph_added = True
 
             # 5. Link to previous event (temporal relationship)
-            if self.metadata["event_count"] > 0:
-                prev_event_id = f"event_{self.metadata['event_count'] - 1}"
+            if self.last_event_id is not None:
                 try:
                     self.graph_store.link_events(
-                        from_id=prev_event_id,
+                        from_id=self.last_event_id,
                         to_id=event_id,
                         relationship="PRECEDES",
                         lag=1,
                     )
+                    logger.debug(f"Linked {self.last_event_id} -> {event_id}")
                 except Exception as e:
                     logger.debug(f"Could not link to previous event: {e}")
+            
+            # Update last_event_id for next event
+            self.last_event_id = event_id
 
             # 6. Update local context
             self.local_context.extend(tokens)
@@ -220,6 +283,7 @@ class HierarchicalMemoryStore:
                 "offloaded": should_offload,
                 "vector_result": vector_result,
                 "token_count": token_count,
+                "used_streams": used_stream,
             }
 
         except Exception as e:
@@ -440,6 +504,8 @@ class HierarchicalMemoryStore:
         self.metadata["event_count"] = 0
         self.metadata["total_tokens"] = 0
         self.metadata["offloaded_events"] = 0
+        self.metadata["last_event_id"] = None
+        self.last_event_id = None
         self._save_metadata()
 
         logger.info("All memory cleared from all storage backends")

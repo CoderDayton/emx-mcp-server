@@ -114,7 +114,7 @@ class GraphStore:
         cursor.execute(
             """
       SELECT to_event FROM relationships
-      WHERE from_event = ? AND lag &lt;= ?
+      WHERE from_event = ? AND lag <= ?
       ORDER BY lag
     """,
             (event_id, max_distance),
@@ -126,7 +126,7 @@ class GraphStore:
         cursor.execute(
             """
       SELECT from_event FROM relationships
-      WHERE to_event = ? AND lag &lt;= ?
+      WHERE to_event = ? AND lag <= ?
       ORDER BY lag
     """,
             (event_id, max_distance),
