@@ -1,12 +1,6 @@
 """
 Embedding encoder for converting tokens to vector representations.
 Uses sentence-transformers for efficient, high-quality embeddings.
-
-OPTIMIZED FOR: RTX 4090 + i9-13900K + WSL2
-- Auto-detect GPU and use CUDA when available
-- Adaptive batch sizing: GPU scales 64-512, CPU fixed at 32
-- Stream-async GPU transfer with proper memory management
-- WSL2-safe pinned memory handling (disabled by default)
 """
 
 import numpy as np
@@ -30,6 +24,7 @@ def _get_instruments():
     if _instruments is None:
         try:
             from emx_mcp.metrics.instruments import get_instruments
+
             _instruments = get_instruments()
         except (ImportError, RuntimeError):
             # Metrics not initialized or unavailable
@@ -68,7 +63,7 @@ class EmbeddingEncoder:
             batch_size: Batch size for encoding (must be enriched by hardware.py, not None at runtime)
             gpu_config: Optional GPU configuration dict with pinned memory settings
             enable_cuda_graphs: Enable CUDA graph capture for inference speedup (requires PyTorch 2.0+)
-            
+
         Raises:
             AssertionError: If device or batch_size is None (config not enriched)
         """
@@ -81,7 +76,7 @@ class EmbeddingEncoder:
             "batch_size must not be None. Config should be enriched via "
             "enrich_config_with_hardware() before initializing encoder."
         )
-        
+
         try:
             import torch
             from sentence_transformers import SentenceTransformer
@@ -103,9 +98,7 @@ class EmbeddingEncoder:
             self.model_name = model_name
             self.batch_size = batch_size
 
-            logger.info(
-                f"Using provided batch_size={batch_size} for {device.upper()}"
-            )
+            logger.info(f"Using provided batch_size={batch_size} for {device.upper()}")
 
             # Store GPU config for pinned memory decisions
             # WSL2-safe: pinned memory disabled by default
@@ -195,8 +188,12 @@ class EmbeddingEncoder:
 
         # Track embedding generation metrics
         instruments = _get_instruments()
-        ctx = instruments.track_embedding(batch_size, self.device) if instruments else None
-        
+        ctx = (
+            instruments.track_embedding(batch_size, self.device)
+            if instruments
+            else None
+        )
+
         try:
             if ctx:
                 ctx.__enter__()
@@ -216,7 +213,7 @@ class EmbeddingEncoder:
                     # model.encode with convert_to_numpy=False returns list of tensors
                     if isinstance(embeddings, list):
                         embeddings = torch.stack(embeddings)
-                    
+
                     if embeddings.dtype != torch.float32:
                         embeddings = embeddings.to(torch.float32)
                     embeddings = embeddings.cpu().numpy().astype(np.float32)
@@ -289,7 +286,7 @@ class EmbeddingEncoder:
                 if ctx:
                     ctx.__exit__(None, None, None)
                 return embeddings
-                
+
         except Exception as e:
             if ctx:
                 ctx.__exit__(type(e), e, e.__traceback__)

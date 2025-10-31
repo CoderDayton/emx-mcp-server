@@ -4,7 +4,7 @@ import tempfile
 
 from emx_mcp.storage.vector_store import VectorStore
 from emx_mcp.utils.config import load_config
-from emx_mcp.utils.config_validator import EMXConfig, StorageConfig
+from emx_mcp.utils.config_validator import EMXConfig, StorageConfig, ModelConfig
 
 
 class TestConfigIntegration:
@@ -14,10 +14,14 @@ class TestConfigIntegration:
         """Test VectorStore receives config defaults."""
         config = load_config()
         
+        # Default vector_dim is None (auto-detection), so we need to provide it explicitly
+        # In production, ProjectMemoryManager auto-detects from encoder
+        dimension = config["storage"]["vector_dim"] or 384
+        
         with tempfile.TemporaryDirectory() as temp_dir:
             store = VectorStore(
                 storage_path=temp_dir,
-                dimension=config["storage"]["vector_dim"],
+                dimension=dimension,
                 nprobe=config["storage"]["nprobe"],
                 auto_retrain=config["storage"]["auto_retrain"],
                 nlist_drift_threshold=config["storage"]["nlist_drift_threshold"],
@@ -31,6 +35,7 @@ class TestConfigIntegration:
         """Test VectorStore respects custom config values."""
         monkeypatch.setenv("EMX_STORAGE_AUTO_RETRAIN", "false")
         monkeypatch.setenv("EMX_STORAGE_NLIST_DRIFT_THRESHOLD", "3.5")
+        monkeypatch.setenv("EMX_STORAGE_VECTOR_DIM", "768")
         
         # Force reload config
         config_obj = EMXConfig(
@@ -48,6 +53,36 @@ class TestConfigIntegration:
             
             assert store.auto_retrain is False
             assert store.nlist_drift_threshold == 3.5
+            assert store.dimension == 768
+
+    def test_vector_dim_auto_detection_config(self, monkeypatch):
+        """Test vector_dim defaults to None for auto-detection."""
+        # Clear any env override
+        monkeypatch.delenv("EMX_STORAGE_VECTOR_DIM", raising=False)
+        
+        config_obj = EMXConfig(
+            storage=StorageConfig()
+        )
+        
+        # Should be None by default (auto-detection)
+        assert config_obj.storage.vector_dim is None
+        
+        legacy = config_obj.to_legacy_dict()
+        assert legacy["storage"]["vector_dim"] is None
+
+    def test_vector_dim_explicit_override(self, monkeypatch):
+        """Test explicit vector_dim override works."""
+        monkeypatch.setenv("EMX_STORAGE_VECTOR_DIM", "768")
+        
+        config_obj = EMXConfig(
+            storage=StorageConfig()
+        )
+        
+        # Should respect explicit value
+        assert config_obj.storage.vector_dim == 768
+        
+        legacy = config_obj.to_legacy_dict()
+        assert legacy["storage"]["vector_dim"] == 768
 
     def test_to_legacy_dict_includes_adaptive_fields(self):
         """Test legacy dict conversion includes new fields."""
@@ -59,9 +94,12 @@ class TestConfigIntegration:
         assert legacy["storage"]["auto_retrain"] is True
         assert legacy["storage"]["nlist_drift_threshold"] == 2.0
 
-    def test_hierarchical_memory_store_integration(self):
+    def test_hierarchical_memory_store_integration(self, monkeypatch):
         """Test HierarchicalMemoryStore uses config for VectorStore."""
         from emx_mcp.memory.storage import HierarchicalMemoryStore
+        
+        # Set explicit dimension for test
+        monkeypatch.setenv("EMX_STORAGE_VECTOR_DIM", "384")
         
         config = load_config()
         

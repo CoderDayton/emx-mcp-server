@@ -39,15 +39,7 @@ class ProjectMemoryManager:
         # Initialize global memories
         self.global_path.mkdir(parents=True, exist_ok=True)
 
-        # Create project and global stores
-        self.project_store = HierarchicalMemoryStore(str(self.memory_dir), enriched_config)
-        self.global_store = HierarchicalMemoryStore(str(self.global_path), enriched_config)
-
-        # Initialize segmentation and retrieval
-        self.segmenter = SurpriseSegmenter(gamma=enriched_config["memory"]["gamma"])
-        self.retrieval = TwoStageRetrieval(self.project_store, enriched_config)
-
-        # Initialize embedding encoder (required for server-side embedding generation)
+        # Initialize embedding encoder FIRST (required for auto-detecting vector dimension)
         try:
             self.encoder = EmbeddingEncoder(
                 model_name=enriched_config["model"]["name"],
@@ -58,11 +50,16 @@ class ProjectMemoryManager:
 
             logger.info(f"Embedding encoder initialized (dim={self.encoder.dimension})")
 
-            # Validate vector dimension matches model output
+            # Auto-detect vector dimension from model if not explicitly configured
             configured_dim = enriched_config["storage"]["vector_dim"]
             actual_dim = self.encoder.dimension
 
-            if configured_dim != actual_dim:
+            if configured_dim is None:
+                # Auto-detection: use model's native dimension
+                enriched_config["storage"]["vector_dim"] = actual_dim
+                logger.info(f"Auto-detected vector dimension: {actual_dim}")
+            elif configured_dim != actual_dim:
+                # Explicit dimension set but mismatches model
                 error_msg = (
                     f"Vector dimension mismatch: EMX_STORAGE_VECTOR_DIM={configured_dim} "
                     f"but model '{enriched_config['model']['name']}' outputs {actual_dim}-dimensional vectors.\n"
@@ -72,7 +69,7 @@ class ProjectMemoryManager:
                     f" - all-mpnet-base-v2: 768\n"
                     f" - paraphrase-multilingual-MiniLM-L12-v2: 384\n"
                     f"\n"
-                    f"Fix: Set EMX_STORAGE_VECTOR_DIM={actual_dim} or choose a different model.\n"
+                    f"Fix: Set EMX_STORAGE_VECTOR_DIM={actual_dim} or remove it to enable auto-detection.\n"
                     f"See: ENVIRONMENT_VARIABLES.md#emx_storage_vector_dim"
                 )
 
@@ -87,6 +84,14 @@ class ProjectMemoryManager:
             raise ImportError(
                 "sentence-transformers required. Install with: pip install sentence-transformers"
             ) from e
+
+        # Create project and global stores (after encoder initialization for auto-detection)
+        self.project_store = HierarchicalMemoryStore(str(self.memory_dir), enriched_config)
+        self.global_store = HierarchicalMemoryStore(str(self.global_path), enriched_config)
+
+        # Initialize segmentation and retrieval
+        self.segmenter = SurpriseSegmenter(gamma=enriched_config["memory"]["gamma"])
+        self.retrieval = TwoStageRetrieval(self.project_store, enriched_config)
 
         logger.info(f"Project memory initialized at {self.memory_dir}")
         logger.info("Using O(n) linear segmentation for all document sizes")

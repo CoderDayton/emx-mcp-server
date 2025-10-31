@@ -137,11 +137,11 @@ class StorageConfig(BaseSettings):
 
     model_config = SettingsConfigDict(env_prefix="EMX_STORAGE_")
 
-    vector_dim: int = Field(
-        default=384,
+    vector_dim: Optional[int] = Field(
+        default=None,
         ge=1,
         le=4096,
-        description="Embedding dimension (must match model)",
+        description="Embedding dimension (None = auto-detect from model, recommended)",
     )
     nprobe: int = Field(
         default=8,
@@ -182,8 +182,10 @@ class StorageConfig(BaseSettings):
 
     @field_validator("vector_dim")
     @classmethod
-    def validate_vector_dim(cls, v: int) -> int:
-        """Validate vector dimension is reasonable."""
+    def validate_vector_dim(cls, v: Optional[int]) -> Optional[int]:
+        """Validate vector dimension is reasonable (None allowed for auto-detection)."""
+        if v is None:
+            return None  # Auto-detect from model
         common_dims = {128, 256, 384, 512, 768, 1024, 1536, 2048}
         if v not in common_dims:
             # Warning: non-standard dimension (still valid)

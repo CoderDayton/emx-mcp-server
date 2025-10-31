@@ -12,8 +12,7 @@ EMX-MCP Server is configured via environment variables. When using with MCP clie
       "args": ["emx-mcp-server"],
       "env": {
         "EMX_MODEL_DEVICE": "cuda",
-        "EMX_MEMORY_GAMMA": "1.5",
-        "EMX_STORAGE_VECTOR_DIM": "768"
+        "EMX_MEMORY_GAMMA": "1.5"
       }
     }
   }
@@ -250,18 +249,36 @@ EMX-MCP Server is configured via environment variables. When using with MCP clie
 ### Storage Configuration
 
 #### `EMX_STORAGE_VECTOR_DIM`
-**Default**: `384`  
+**Default**: Auto-detected from `EMX_MODEL_NAME` (recommended)  
 **Valid Range**: `1` to `4096`  
-**Description**: Embedding vector dimension (MUST match your model).
+**Description**: Embedding vector dimension. Auto-detected from the model by default; only set manually if you need to override.
 
-**⚠️ CRITICAL**: Must match `EMX_MODEL_NAME` output dimension:
-- `all-MiniLM-L6-v2` → `384`
-- `all-mpnet-base-v2` → `768`
-- `paraphrase-multilingual-*` → check model card
+**Auto-Detection (Recommended)**:
+- Leave unset (or omit from `env: {}`), and the server will automatically detect the dimension from your model
+- Eliminates manual configuration errors
+- Safer: impossible to mismatch model and index dimensions
 
-**Example**:
+**Manual Override (Advanced)**:
+- Only needed for edge cases (custom models, pre-existing indexes)
+- Common dimensions:
+  - `all-MiniLM-L6-v2` → `384`
+  - `all-mpnet-base-v2` → `768`
+  - `paraphrase-multilingual-*` → check model card
+- ⚠️ If set incorrectly, will cause dimension mismatch errors at runtime
+
+**Example (auto-detect, recommended)**:
 ```json
-"EMX_STORAGE_VECTOR_DIM": "768"
+"env": {
+  "EMX_MODEL_NAME": "all-mpnet-base-v2"
+}
+```
+
+**Example (manual override)**:
+```json
+"env": {
+  "EMX_MODEL_NAME": "all-mpnet-base-v2",
+  "EMX_STORAGE_VECTOR_DIM": "768"
+}
 ```
 
 ---
@@ -732,8 +749,7 @@ For large-scale workloads:
 Support for non-English text:
 ```json
 "env": {
-  "EMX_MODEL_NAME": "paraphrase-multilingual-MiniLM-L12-v2",
-  "EMX_STORAGE_VECTOR_DIM": "384"
+  "EMX_MODEL_NAME": "paraphrase-multilingual-MiniLM-L12-v2"
 }
 ```
 
@@ -767,4 +783,4 @@ A: Reduce `EMX_MODEL_BATCH_SIZE` or `EMX_MEMORY_N_LOCAL`
 A: Adjust `EMX_MEMORY_GAMMA` (higher = fewer boundaries, lower = more boundaries)
 
 **Q: Vector dimension mismatch errors**  
-A: Ensure `EMX_STORAGE_VECTOR_DIM` matches your `EMX_MODEL_NAME` output dimension
+A: Remove `EMX_STORAGE_VECTOR_DIM` from your config to enable auto-detection (recommended). Only set manually for advanced use cases.
