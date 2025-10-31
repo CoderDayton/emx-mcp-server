@@ -314,3 +314,77 @@ class TestBatchSearch:
         assert len(results) == 1, "Should return results even with untrained index"
         event_ids, distances, metadata = results[0]
         assert len(event_ids) <= 2, "Should find vectors in buffer"
+    
+    def test_adaptive_routing_cpu_small_queries(self, populated_store, encoder):
+        """Test that small CPU queries route to sequential search."""
+        store, sample_texts = populated_store
+        
+        # Ensure GPU is disabled
+        store.gpu_enabled = False
+        
+        # Test with 10 queries (below 100 threshold)
+        texts = [f"test query {i}" for i in range(10)]
+        token_lists = [text.split() for text in texts]
+        queries = encoder.encode_batch(token_lists)
+        
+        # Should route to sequential
+        assert not store._should_use_batch(10), "Should route to sequential for 10 CPU queries"
+        
+        # Results should still be correct
+        results = store.search_batch(queries, k=5)
+        assert len(results) == 10, "Should return results for all queries"
+    
+    def test_adaptive_routing_cpu_large_queries(self, populated_store):
+        """Test that large CPU queries use batch search."""
+        store, sample_texts = populated_store
+        
+        # Ensure GPU is disabled
+        store.gpu_enabled = False
+        
+        # Test with 150 queries (above 100 threshold)
+        should_batch = store._should_use_batch(150)
+        assert should_batch, "Should use batch for 150 CPU queries"
+    
+    def test_adaptive_routing_gpu_always_batch(self, populated_store):
+        """Test that GPU always uses batch search regardless of query count."""
+        store, sample_texts = populated_store
+        
+        # Simulate GPU enabled
+        store.gpu_enabled = True
+        
+        # Even 1 query should use batch on GPU
+        assert store._should_use_batch(1), "GPU should always use batch (1 query)"
+        assert store._should_use_batch(10), "GPU should always use batch (10 queries)"
+        assert store._should_use_batch(1000), "GPU should always use batch (1000 queries)"
+    
+    def test_force_batch_override(self, populated_store, encoder):
+        """Test that force_batch parameter overrides adaptive routing."""
+        store, sample_texts = populated_store
+        
+        # CPU mode with small query count
+        store.gpu_enabled = False
+        
+        texts = [f"test query {i}" for i in range(5)]
+        token_lists = [text.split() for text in texts]
+        queries = encoder.encode_batch(token_lists)
+        
+        # Without force_batch: should route to sequential
+        assert not store._should_use_batch(5), "Should normally route to sequential"
+        
+        # With force_batch: should use batch API anyway
+        results = store.search_batch(queries, k=3, force_batch=True)
+        assert len(results) == 5, "Should return results with forced batch"
+    
+    def test_routing_threshold_boundary(self, populated_store):
+        """Test routing behavior at the CPU threshold boundary."""
+        store, sample_texts = populated_store
+        store.gpu_enabled = False
+        
+        # Just below threshold
+        assert not store._should_use_batch(99), "99 queries should route to sequential"
+        
+        # At threshold
+        assert store._should_use_batch(100), "100 queries should use batch"
+        
+        # Just above threshold
+        assert store._should_use_batch(101), "101 queries should use batch"
