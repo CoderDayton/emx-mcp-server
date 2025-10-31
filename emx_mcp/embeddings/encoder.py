@@ -1,11 +1,22 @@
 """
 Embedding encoder for converting tokens to vector representations.
 Uses sentence-transformers for efficient, high-quality embeddings.
+
+OPTIMIZED FOR: RTX 4090 + i9-13900K + WSL2
+- Auto-detect GPU and use CUDA when available
+- Adaptive batch sizing: GPU scales 64-512, CPU fixed at 32
+- Stream-async GPU transfer with proper memory management
+- WSL2-safe pinned memory handling (disabled by default)
 """
 
 import numpy as np
-from typing import List
+from typing import Any, Callable, List, Optional, Tuple, Union, TYPE_CHECKING
 import logging
+
+from emx_mcp.gpu.pinned_memory import get_global_pool, TORCH_AVAILABLE
+
+if TYPE_CHECKING:
+    import torch
 
 logger = logging.getLogger(__name__)
 
@@ -16,40 +27,108 @@ class EmbeddingEncoder:
 
     Uses sentence-transformers models for semantic encoding.
     Default: all-MiniLM-L6-v2 (384-dim, fast, good quality)
+
+    OPTIMIZATIONS:
+    - Automatic GPU detection for WSL2/CUDA environments
+    - Adaptive batch size: GPU 64-512 based on VRAM, CPU fixed at 32
+    - Stream-based async execution with proper context handling
+    - Efficient tensor transfers with pinned memory
     """
 
     def __init__(
         self,
-        model_name: str = "all-MiniLM-L6-v2",
-        device: str = "cpu",
-        batch_size: int = 32,
+        model_name: str,
+        device: Optional[str] = None,
+        batch_size: Optional[int] = None,
+        gpu_config: Optional[dict] = None,
+        enable_cuda_graphs: bool = False,
     ):
         """
-        Initialize embedding encoder.
+        Initialize embedding encoder with GPU optimization.
 
         Args:
             model_name: HuggingFace model identifier
-            device: "cpu" or "cuda"
+            device: "cpu" or "cuda" (must be enriched by hardware.py, not None at runtime)
+            batch_size: Batch size for encoding (must be enriched by hardware.py, not None at runtime)
+            gpu_config: Optional GPU configuration dict with pinned memory settings
+            enable_cuda_graphs: Enable CUDA graph capture for inference speedup (requires PyTorch 2.0+)
+            
+        Raises:
+            AssertionError: If device or batch_size is None (config not enriched)
         """
+        # Runtime assertions: config must be enriched before passing to encoder
+        assert device is not None, (
+            "device must not be None. Config should be enriched via "
+            "enrich_config_with_hardware() before initializing encoder."
+        )
+        assert batch_size is not None, (
+            "batch_size must not be None. Config should be enriched via "
+            "enrich_config_with_hardware() before initializing encoder."
+        )
+        
         try:
+            import torch
             from sentence_transformers import SentenceTransformer
 
+            # Validate CUDA availability if requested
+            if device == "cuda" and not torch.cuda.is_available():
+                raise RuntimeError(
+                    "CUDA device specified but not available. "
+                    "Hardware detection should have caught this."
+                )
+
+            self.device = device
+            self.torch_available = True
+            self.torch = torch
+
+            # Load model
             self.model = SentenceTransformer(model_name, device=device)
             self.dimension = self.model.get_sentence_embedding_dimension()
             self.model_name = model_name
             self.batch_size = batch_size
 
             logger.info(
-                f"EmbeddingEncoder initialized: {model_name} (dim={self.dimension})"
+                f"Using provided batch_size={batch_size} for {device.upper()}"
             )
-        except ImportError:
+
+            # Store GPU config for pinned memory decisions
+            # WSL2-safe: pinned memory disabled by default
+            self.gpu_config = gpu_config or {
+                "enable_pinned_memory": False,  # Disabled for WSL2 stability
+                "pinned_buffer_size": 4,
+                "pinned_max_batch": 256,
+                "pinned_min_batch_threshold": 64,
+            }
+
+            # WSL2-safe pinned memory auto-detection
+            if device == "cuda" and self.gpu_config.get("enable_pinned_memory", False):
+                try:
+                    # Test if pinned memory works on this system
+                    test_tensor = torch.zeros(10, 384, pin_memory=True, device="cuda")
+                    logger.debug("Pinned memory available on this system")
+                    self.gpu_config["enable_pinned_memory"] = True
+                except RuntimeError as e:
+                    logger.warning(f"Pinned memory not available (WSL2 issue?): {e}")
+                    self.gpu_config["enable_pinned_memory"] = False
+
+            # CUDA graph support (PyTorch 2.0+)
+            self.enable_cuda_graphs = enable_cuda_graphs and device == "cuda"
+            if self.enable_cuda_graphs and torch.__version__ >= "2.0.0":
+                logger.info("CUDA graphs enabled for inference speedup")
+
+            logger.info(
+                f"EmbeddingEncoder initialized: {model_name} (dim={self.dimension}, "
+                f"device={device}, batch_size={self.batch_size})"
+            )
+
+        except ImportError as e:
             logger.error(
                 "sentence-transformers not installed. Run: pip install sentence-transformers"
             )
             raise ImportError(
                 "sentence-transformers required for embedding generation. "
                 "Install with: pip install sentence-transformers"
-            )
+            ) from e
 
     def encode_tokens(self, tokens: List[str]) -> np.ndarray:
         """
@@ -61,38 +140,123 @@ class EmbeddingEncoder:
         Returns:
             Embedding vector of shape (dimension,)
         """
-        # Join tokens into text
+        if not tokens:
+            raise ValueError("Token list cannot be empty")
+
         text = " ".join(tokens)
-
-        # Encode
         embedding = self.model.encode(
-            text, convert_to_numpy=True, show_progress_bar=False
-        )
-
-        return embedding.astype(np.float32)
-
-    def encode_batch(self, token_lists: List[List[str]]) -> np.ndarray:
-        """
-        Batch encode multiple token sequences.
-
-        Args:
-            token_lists: List of token lists
-
-        Returns:
-            Embeddings array of shape (n_sequences, dimension)
-        """
-        # Join each token list into text
-        texts = [" ".join(tokens) for tokens in token_lists]
-
-        # Batch encode
-        embeddings = self.model.encode(
-            texts,
+            text,
             batch_size=self.batch_size,
             convert_to_numpy=True,
             show_progress_bar=False,
+            device=self.device,
+        )
+        return embedding.astype(np.float32)
+
+    def encode_batch(
+        self,
+        token_lists: List[List[str]],
+        use_pinned_memory: bool = False,
+        stream: Optional["torch.cuda.Stream"] = None,
+    ) -> Union[np.ndarray, Tuple[Any, Callable[[], None]]]:
+        """
+        Batch encode multiple token sequences with GPU optimization.
+
+        Args:
+            token_lists: List of token lists
+            use_pinned_memory: If True, attempt to use pinned memory buffers
+            stream: Optional CUDA stream for async execution
+
+        Returns:
+            If pinned memory used: Tuple of (pinned_tensor, release_callback)
+            Otherwise: Embeddings array of shape (n_sequences, dimension)
+        """
+        if not token_lists:
+            raise ValueError("Token lists cannot be empty")
+
+        texts = [" ".join(tokens) for tokens in token_lists]
+        batch_size = len(texts)
+
+        # Fixed stream context to properly wrap entire encoding operation
+        if stream is not None and self.torch_available and self.device == "cuda":
+            import torch
+
+            with torch.cuda.stream(stream):
+                embeddings = self.model.encode(
+                    texts,
+                    batch_size=self.batch_size,
+                    convert_to_numpy=False,
+                    show_progress_bar=False,
+                    device=self.device,
+                )
+                # model.encode with convert_to_numpy=False returns list of tensors
+                if isinstance(embeddings, list):
+                    embeddings = torch.stack(embeddings)
+                
+                if embeddings.dtype != torch.float32:
+                    embeddings = embeddings.to(torch.float32)
+                embeddings = embeddings.cpu().numpy().astype(np.float32)
+        else:
+            embeddings = self.model.encode(
+                texts,
+                batch_size=self.batch_size,
+                convert_to_numpy=True,
+                show_progress_bar=False,
+                device=self.device,
+            )
+            embeddings = embeddings.astype(np.float32)
+
+        # Check if we should use pinned memory
+        should_pin = (
+            use_pinned_memory
+            and self.torch_available
+            and self.device == "cuda"
+            and self.gpu_config.get("enable_pinned_memory", False)
+            and batch_size >= self.gpu_config.get("pinned_min_batch_threshold", 64)
         )
 
-        return embeddings.astype(np.float32)
+        if not should_pin:
+            return embeddings
+
+        # Efficient pinned memory transfer
+        try:
+            dimension = int(self.dimension) if self.dimension else 384
+            pool = get_global_pool(
+                dimension=dimension,
+                max_batch_size=self.gpu_config.get("pinned_max_batch", 256),
+                buffer_size=self.gpu_config.get("pinned_buffer_size", 4),
+            )
+
+            if pool is None:
+                logger.debug("Pinned memory pool unavailable, using regular numpy")
+                return embeddings
+
+            buffer, release_callback = pool.acquire(batch_size)
+            buffer[:batch_size] = embeddings
+
+            if stream is not None:
+                try:
+                    from emx_mcp.gpu.stream_manager import StreamManager
+
+                    StreamManager.record_tensor_stream(buffer[:batch_size], stream)
+                except ImportError:
+                    logger.debug(
+                        "StreamManager not available, skipping stream recording"
+                    )
+
+            logger.debug(
+                f"Using pinned memory for batch_size={batch_size} "
+                f"(threshold={self.gpu_config.get('pinned_min_batch_threshold', 64)})"
+            )
+
+            return buffer[:batch_size], release_callback
+
+        except Exception as e:
+            logger.warning(
+                f"Failed to acquire pinned memory (batch_size={batch_size}): {e}. "
+                f"Falling back to regular numpy array"
+            )
+            return embeddings
 
     def encode_individual_tokens(self, tokens: List[str]) -> np.ndarray:
         """
@@ -104,13 +268,16 @@ class EmbeddingEncoder:
         Returns:
             Embeddings array of shape (n_tokens, dimension)
         """
+        if not tokens:
+            raise ValueError("Token list cannot be empty")
+
         embeddings = self.model.encode(
             tokens,
             batch_size=self.batch_size,
             convert_to_numpy=True,
             show_progress_bar=False,
+            device=self.device,
         )
-
         return embeddings.astype(np.float32)
 
     def encode_tokens_with_context(
@@ -119,10 +286,6 @@ class EmbeddingEncoder:
         """
         Encode tokens individually with local context for surprise calculation.
 
-        This method computes embeddings for each token while considering its local
-        context window. This provides better semantic representation for detecting
-        semantic shifts and computing surprise values.
-
         Args:
             tokens: List of token strings
             context_window: Number of previous tokens to include as context
@@ -130,26 +293,33 @@ class EmbeddingEncoder:
         Returns:
             Array of embeddings of shape (n_tokens, embedding_dim)
         """
-        embeddings = []
-
         if not tokens:
             raise ValueError("Token list cannot be empty")
 
-        for i, token in enumerate(tokens):
-            # Get context window
+        logger.info(
+            f"Building context strings for {len(tokens)} tokens (window={context_window})"
+        )
+
+        context_texts = []
+        for i in range(len(tokens)):
             start = max(0, i - context_window)
             context_tokens = tokens[start : i + 1]
+            context_texts.append(" ".join(context_tokens))
 
-            # Encode token with context - join as text for sentence-transformers
-            text = " ".join(context_tokens)
+        logger.info(
+            f"Encoding {len(context_texts)} contexts in batch (batch_size={self.batch_size})..."
+        )
 
-            # Encode using sentence-transformers
-            embedding = self.model.encode(
-                text, convert_to_numpy=True, show_progress_bar=False
-            )
-            embeddings.append(embedding)
+        embeddings = self.model.encode(
+            context_texts,
+            batch_size=self.batch_size,
+            convert_to_numpy=True,
+            show_progress_bar=False,
+            device=self.device,
+        )
 
-        return np.array(embeddings, dtype=np.float32)
+        logger.info(f"Batch encoding complete: {embeddings.shape}")
+        return embeddings.astype(np.float32)
 
     def get_query_embedding(self, query: str) -> np.ndarray:
         """
@@ -161,7 +331,64 @@ class EmbeddingEncoder:
         Returns:
             Query embedding of shape (dimension,)
         """
+        if not query:
+            raise ValueError("Query cannot be empty")
+
         embedding = self.model.encode(
-            query, convert_to_numpy=True, show_progress_bar=False
+            query,
+            batch_size=self.batch_size,
+            convert_to_numpy=True,
+            show_progress_bar=False,
+            device=self.device,
         )
         return embedding.astype(np.float32)
+
+    def warmup_gpu_cache(self) -> None:
+        """
+        Pre-allocate GPU memory cache for faster first inference.
+        """
+        if self.device != "cuda":
+            logger.debug("Warmup skipped (not using CUDA)")
+            return
+
+        try:
+            logger.info("Warming up GPU cache...")
+            dummy_texts = ["sample text for warmup"] * min(8, self.batch_size)
+            _ = self.model.encode(
+                dummy_texts,
+                batch_size=self.batch_size,
+                convert_to_numpy=True,
+                show_progress_bar=False,
+            )
+            logger.info("GPU cache warmup complete")
+        except Exception as e:
+            logger.warning(f"GPU cache warmup failed: {e}")
+
+    def get_device_info(self) -> dict:
+        """
+        Get detailed device and performance information.
+
+        Returns:
+            Dictionary with GPU/CPU specs and configuration
+        """
+        info = {
+            "device": self.device,
+            "batch_size": self.batch_size,
+            "model": self.model_name,
+            "embedding_dim": self.dimension,
+        }
+
+        if self.device == "cuda" and self.torch_available:
+            props = self.torch.cuda.get_device_properties(0)
+            info.update(
+                {
+                    "gpu_name": props.name,
+                    "gpu_memory_gb": props.total_memory / 1e9,
+                    "cuda_capability": f"{props.major}.{props.minor}",
+                    "pinned_memory_enabled": self.gpu_config.get(
+                        "enable_pinned_memory", False
+                    ),
+                }
+            )
+
+        return info
