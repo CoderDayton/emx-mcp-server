@@ -259,6 +259,19 @@ class ProjectMemoryManager:
         self.retrieval.warmup_cache_smart()
         return self.get_cache_info()
 
+    def warmup_cache_manual(self, num_passes=3) -> dict:
+        """
+        Pre-warm retrieval cache based on query frequency patterns.
+
+        Automatically loads frequently accessed events into GPU memory cache
+        for 3-5x faster subsequent retrievals.
+
+        Returns:
+            Dict with cache warmup statistics
+        """
+        self.retrieval.warmup_cache_manual(num_passes=num_passes)
+        return self.get_cache_info()
+
     def get_cache_info(self) -> dict:
         """
         Get detailed retrieval cache statistics.

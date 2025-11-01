@@ -259,6 +259,16 @@ File size limit of 100MB keeps storage costs reasonable while serving most use c
         logger.info("🔍 BENCHMARK: recall_memories (Retrieval)")
         logger.info("=" * 60)
 
+        retrieval = manager.retrieval
+
+        logger.info("Warming up cache...")
+        retrieval.warmup_cache_manual(num_passes=5)
+        retrieval.print_cache_stats()
+
+        # Reset cache stats for benchmark
+        retrieval.cache_hits = 0
+        retrieval.cache_misses = 0
+
         # Generate diverse queries
         queries = [
             "debugging database connection pool timeout errors",
@@ -278,12 +288,6 @@ File size limit of 100MB keeps storage costs reasonable while serving most use c
         latencies = []
         results_per_query = []
 
-        # Pre-warm cache if empty
-        cache_info = manager.get_cache_info()
-        if cache_info["cache_size"] == 0:
-            logger.info("Pre-warming retrieval cache...")
-            manager.warmup_cache_smart()
-
         # Use batch processing for 3+ queries
         if len(queries) >= 3:
             logger.info(f"Using batch retrieval for {len(queries)} queries...")
@@ -294,7 +298,7 @@ File size limit of 100MB keeps storage costs reasonable while serving most use c
             query_embeddings = manager.encode_queries_batch(queries)
 
             # Batch retrieve
-            batch_results = manager.retrieve_batch(
+            batch_results = retrieval.retrieve_batch(
                 query_embeddings,
                 k_similarity=10,
                 k_contiguity=5,
@@ -322,7 +326,7 @@ File size limit of 100MB keeps storage costs reasonable while serving most use c
                 query_embedding = manager.encode_query(query)
 
                 # Retrieve memories
-                result = manager.retrieve_memories(
+                result = retrieval.retrieve(
                     query_embedding.tolist(),
                     k_similarity=10,
                     k_contiguity=5,
