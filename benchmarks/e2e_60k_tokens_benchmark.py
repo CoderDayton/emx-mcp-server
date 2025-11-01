@@ -325,39 +325,7 @@ class E2EBenchmark:
 
         # Use batch processing for queries if 3+, else individual
         if len(queries) >= 3:
-            print(f"Using batch retrieval for {len(queries)} queries...")
-
-            # Batch encode all queries
-            encode_start = time.perf_counter()
-            query_embeddings = self.manager.encode_queries_batch(queries)
-            encode_time = time.perf_counter() - encode_start
-
-            # Batch retrieve
-            batch_start = time.perf_counter()
-            batch_results = self.manager.retrieve_batch(
-                query_embeddings,
-                k_similarity=k,
-                k_contiguity=5,
-                use_contiguity=True,
-            )
-            batch_time = time.perf_counter() - batch_start
-
-            # Process results
-            for i, (query, retrieval_result) in enumerate(zip(queries, batch_results)):
-                query_time = (encode_time + batch_time) / len(queries)  # Amortized time
-
-                results.append(
-                    {
-                        "query": query[:50] + "...",
-                        "num_results": len(retrieval_result.get("events", [])),
-                        "time_ms": query_time * 1000,
-                    }
-                )
-
-                print(
-                    f" Query {i+1}: '{query[:60]}...' → "
-                    f"{len(retrieval_result.get('events', []))} results"
-                )
+            self._extracted_from_run_recall_phase(queries, k, results)
         else:
             # Individual query processing for small batches
             for query in queries:
@@ -375,7 +343,7 @@ class E2EBenchmark:
 
                 results.append(
                     {
-                        "query": query[:50] + "...",
+                        "query": f"{query[:50]}...",
                         "num_results": len(retrieval_result.get("events", [])),
                         "time_ms": query_time * 1000,
                     }
@@ -403,6 +371,42 @@ class E2EBenchmark:
         )
 
         return self.metrics["retrieval"]
+
+    def _extracted_from_run_recall_phase(self, queries, k, results):
+        print(f"Using batch retrieval for {len(queries)} queries...")
+
+        # Batch encode all queries
+        encode_start = time.perf_counter()
+        query_embeddings = self.manager.encode_queries_batch(queries)
+        encode_time = time.perf_counter() - encode_start
+
+        # Batch retrieve
+        batch_start = time.perf_counter()
+        batch_results = self.manager.retrieve_batch(
+            query_embeddings,
+            k_similarity=k,
+            k_contiguity=5,
+            use_contiguity=True,
+        )
+        batch_time = time.perf_counter() - batch_start
+
+        # Process results
+        amortized_query_time = (encode_time + batch_time) / len(
+            queries
+        )  # Amortized time
+        for i, (query, retrieval_result) in enumerate(zip(queries, batch_results)):
+            results.append(
+                {
+                    "query": f"{query[:50]}...",
+                    "num_results": len(retrieval_result.get("events", [])),
+                    "time_ms": amortized_query_time * 1000,
+                }
+            )
+
+            print(
+                f" Query {i+1}: '{query[:60]}...' → "
+                f"{len(retrieval_result.get('events', []))} results"
+            )
 
     def run_full_benchmark(self) -> dict:
         """Execute complete EM-LLM benchmark."""
@@ -480,17 +484,7 @@ def main():
     print(f"Benchmark workspace: {temp_dir}")
 
     try:
-        benchmark = E2EBenchmark(temp_dir)
-        metrics = benchmark.run_full_benchmark()
-
-        output_file = Path(__file__).parent / "benchmark_results.json"
-        with open(output_file, "w") as f:
-            json.dump(metrics, f, indent=2, default=str)
-
-        print(f"\nResults saved to: {output_file}")
-
-        return 0
-
+        return _setup_benchmark(temp_dir)
     except Exception as e:
         print(f"\nBenchmark failed: {e}", file=sys.stderr)
         import traceback
@@ -501,6 +495,19 @@ def main():
     finally:
         print(f"\nCleaning up: {temp_dir}")
         shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def _setup_benchmark(temp_dir):
+    benchmark = E2EBenchmark(temp_dir)
+    metrics = benchmark.run_full_benchmark()
+
+    output_file = Path(__file__).parent / "benchmark_results.json"
+    with open(output_file, "w") as f:
+        json.dump(metrics, f, indent=2, default=str)
+
+    print(f"\nResults saved to: {output_file}")
+
+    return 0
 
 
 if __name__ == "__main__":
