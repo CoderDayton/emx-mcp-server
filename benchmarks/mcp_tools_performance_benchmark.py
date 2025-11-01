@@ -239,7 +239,9 @@ File size limit of 100MB keeps storage costs reasonable while serving most use c
             "nlist_status": (
                 "optimal"
                 if index_info["nlist_ratio"] >= 0.85
-                else "acceptable" if index_info["nlist_ratio"] >= 0.5 else "suboptimal"
+                else "acceptable"
+                if index_info["nlist_ratio"] >= 0.5
+                else "suboptimal"
             ),
         }
 
@@ -433,7 +435,9 @@ File size limit of 100MB keeps storage costs reasonable while serving most use c
             "index_status": (
                 "optimal"
                 if nlist_ratio >= 0.85
-                else "acceptable" if nlist_ratio >= 0.5 else "suboptimal"
+                else "acceptable"
+                if nlist_ratio >= 0.5
+                else "suboptimal"
             ),
         }
 

@@ -92,8 +92,8 @@ class EmbeddingEncoder:
 
             if device == "cuda" and self.torch.__version__ >= "2.0.0":
                 try:
-                    self.model[0].auto_model = self.torch.compile(  # type: ignore[arg-type]
-                        self.model[0].auto_model,  # type: ignore[arg-type]
+                    self.model[0].auto_model = self.torch.compile(  # type: ignore[attr-defined]
+                        self.model[0].auto_model,  # type: ignore
                         mode="reduce-overhead",
                         fullgraph=False,
                     )
@@ -304,15 +304,13 @@ class EmbeddingEncoder:
 
         if self.device == "cuda" and self.torch_available:
             props = self.torch.cuda.get_device_properties(0)
-            info.update(
-                {
-                    "gpu_name": props.name,
-                    "gpu_memory_gb": props.total_memory / 1e9,
-                    "cuda_capability": f"{props.major}.{props.minor}",
-                    "pinned_memory_enabled": self.gpu_config.get(
-                        "enable_pinned_memory", False
-                    ),
-                }
-            )
+            info |= {
+                "gpu_name": props.name,
+                "gpu_memory_gb": props.total_memory / 1e9,
+                "cuda_capability": f"{props.major}.{props.minor}",
+                "pinned_memory_enabled": self.gpu_config.get(
+                    "enable_pinned_memory", False
+                ),
+            }
 
         return info

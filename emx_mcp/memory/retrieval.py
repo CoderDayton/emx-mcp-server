@@ -41,8 +41,7 @@ class CachedBatchRetrieval:
         self.cache_misses = 0
 
         logger.info(
-            f"✅ CachedBatchRetrieval initialized "
-            f"(cache_size={self.max_cache_size})"
+            f"✅ CachedBatchRetrieval initialized (cache_size={self.max_cache_size})"
         )
 
     # ============ SINGLE QUERY (cache optimized) ============

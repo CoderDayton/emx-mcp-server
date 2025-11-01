@@ -1,6 +1,5 @@
 """Tool for removing specific memories from project memory."""
 
-from typing import Optional
 import logging
 
 logger = logging.getLogger(__name__)

@@ -615,7 +615,7 @@ class TestIntegration:
         # Pre-warm cache for consistent test performance
         cache_info = manager.get_cache_info()
         if cache_info["cache_size"] == 0:
-            manager.warmup_cache_smart()
+            manager.retrieval.warmup_cache_manual(num_passes=3)
 
         # Use batch processing for multiple test queries
         if len(test_queries) >= 3:
@@ -635,7 +635,7 @@ class TestIntegration:
                 zip(test_queries, batch_results)
             ):
                 print(
-                    f"    Batch query {i+1}: '{query_text}' -> {len(retrieval_result.get('events', []))} results"
+                    f"    Batch query {i + 1}: '{query_text}' -> {len(retrieval_result.get('events', []))} results"
                 )
 
                 # Verify retrieval worked

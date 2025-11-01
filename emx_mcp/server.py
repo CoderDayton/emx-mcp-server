@@ -84,7 +84,9 @@ def get_memory_status() -> dict:
                 else (
                     "acceptable"
                     if nlist_ratio >= 0.5
-                    else "suboptimal" if nlist_ratio > 0 else "not_trained"
+                    else "suboptimal"
+                    if nlist_ratio > 0
+                    else "not_trained"
                 )
             ),
             "nprobe": index_info.get("nprobe", 8),

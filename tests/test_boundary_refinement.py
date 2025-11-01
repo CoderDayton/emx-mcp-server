@@ -87,9 +87,9 @@ class TestBoundaryRefinement:
         )
 
         # Should have boundaries near 0, 33, 66, 100
-        assert (
-            len(boundaries) >= 3
-        ), f"Expected at least 3 boundaries, got {len(boundaries)}"
+        assert len(boundaries) >= 3, (
+            f"Expected at least 3 boundaries, got {len(boundaries)}"
+        )
         assert boundaries[0] == 0, "First boundary should be at start"
         assert boundaries[-1] == len(tokens) - 1, "Last boundary should be at end"
 
@@ -98,9 +98,9 @@ class TestBoundaryRefinement:
         middle_boundaries = sorted(boundaries[1:-1])
         if len(middle_boundaries) >= 2:
             # Just verify boundaries are spaced out (not all at beginning)
-            assert (
-                middle_boundaries[-1] - middle_boundaries[0] > 20
-            ), "Boundaries should be distributed across the sequence"
+            assert middle_boundaries[-1] - middle_boundaries[0] > 20, (
+                "Boundaries should be distributed across the sequence"
+            )
 
     def test_conductance_optimization(self):
         """Test conductance metric produces valid boundaries."""
@@ -229,9 +229,9 @@ class TestBoundaryRefinement:
         optimal_pos = segmenter_with_refinement._optimize_modularity(adjacency, 0, 10)
 
         # Optimal position should be near 5 (split between clusters)
-        assert (
-            4 <= optimal_pos <= 6
-        ), f"Expected optimal split near 5, got {optimal_pos}"
+        assert 4 <= optimal_pos <= 6, (
+            f"Expected optimal split near 5, got {optimal_pos}"
+        )
 
     def test_conductance_computation_correctness(self):
         """Test conductance optimization produces expected results for simple case."""
@@ -253,9 +253,9 @@ class TestBoundaryRefinement:
         optimal_pos = segmenter._optimize_conductance(adjacency, 0, 10)
 
         # Optimal position should be near 5 (split between clusters)
-        assert (
-            4 <= optimal_pos <= 6
-        ), f"Expected optimal split near 5, got {optimal_pos}"
+        assert 4 <= optimal_pos <= 6, (
+            f"Expected optimal split near 5, got {optimal_pos}"
+        )
 
     def test_refinement_with_no_embeddings_raises_error(
         self, segmenter_with_refinement
@@ -338,9 +338,9 @@ class TestBoundaryRefinementPerformance:
         # For O(nm) with m=100: 800 tokens should take ~8x the time of 100 tokens
         # Allow for measurement noise: check 8x tokens takes < 20x time (not 64x as O(n²) would)
         time_ratio = times[-1] / times[0]
-        assert (
-            time_ratio < 20
-        ), f"Complexity appears too high: {times}, ratio={time_ratio:.1f}x"
+        assert time_ratio < 20, (
+            f"Complexity appears too high: {times}, ratio={time_ratio:.1f}x"
+        )
 
     def test_large_segment_skipping_prevents_slowdown(self):
         """Test that segments larger than max_refinement_window are skipped efficiently."""

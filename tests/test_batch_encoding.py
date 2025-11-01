@@ -259,21 +259,21 @@ class TestBatchEncoding:
         batch_emb_4 = store.get_event(event_ids[4]).embeddings
 
         # Verify dimensions match
-        assert len(individual_emb_0) == len(
-            batch_emb_0
-        ), f"Embedding counts differ: {len(individual_emb_0)} vs {len(batch_emb_0)}"
-        assert len(individual_emb_1) == len(
-            batch_emb_1
-        ), f"Embedding counts differ: {len(individual_emb_1)} vs {len(batch_emb_1)}"
-        assert len(individual_emb_2) == len(
-            batch_emb_2
-        ), f"Embedding counts differ: {len(individual_emb_2)} vs {len(batch_emb_2)}"
-        assert len(individual_emb_3) == len(
-            batch_emb_3
-        ), f"Embedding counts differ: {len(individual_emb_3)} vs {len(batch_emb_3)}"
-        assert len(individual_emb_4) == len(
-            batch_emb_4
-        ), f"Embedding counts differ: {len(individual_emb_4)} vs {len(batch_emb_4)}"
+        assert len(individual_emb_0) == len(batch_emb_0), (
+            f"Embedding counts differ: {len(individual_emb_0)} vs {len(batch_emb_0)}"
+        )
+        assert len(individual_emb_1) == len(batch_emb_1), (
+            f"Embedding counts differ: {len(individual_emb_1)} vs {len(batch_emb_1)}"
+        )
+        assert len(individual_emb_2) == len(batch_emb_2), (
+            f"Embedding counts differ: {len(individual_emb_2)} vs {len(batch_emb_2)}"
+        )
+        assert len(individual_emb_3) == len(batch_emb_3), (
+            f"Embedding counts differ: {len(individual_emb_3)} vs {len(batch_emb_3)}"
+        )
+        assert len(individual_emb_4) == len(batch_emb_4), (
+            f"Embedding counts differ: {len(individual_emb_4)} vs {len(batch_emb_4)}"
+        )
 
 
 if __name__ == "__main__":

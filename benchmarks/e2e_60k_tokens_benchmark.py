@@ -315,13 +315,13 @@ class E2EBenchmark:
         """Execute recall phase (two-stage retrieval)."""
         print("\n=== RECALL PHASE ===")
         start_time = time.perf_counter()
-        results = []
+        results: list[dict[str, str | int | float]] = []
 
         # Pre-warm cache for optimal performance
         cache_info = self.manager.get_cache_info()
         if cache_info["cache_size"] == 0:
             print("Pre-warming retrieval cache...")
-            self.manager.warmup_cache_smart()
+            self.manager.retrieval.warmup_cache_manual(num_passes=3)
 
         # Use batch processing for queries if 3+, else individual
         if len(queries) >= 3:
@@ -404,7 +404,7 @@ class E2EBenchmark:
             )
 
             print(
-                f" Query {i+1}: '{query[:60]}...' → "
+                f" Query {i + 1}: '{query[:60]}...' → "
                 f"{len(retrieval_result.get('events', []))} results"
             )
 

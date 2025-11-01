@@ -117,7 +117,9 @@ def recall_memories(
         "status": (
             "optimal"
             if nlist_ratio >= 0.85
-            else "acceptable" if nlist_ratio >= 0.5 else "suboptimal"
+            else "acceptable"
+            if nlist_ratio >= 0.5
+            else "suboptimal"
         ),
     }
 
