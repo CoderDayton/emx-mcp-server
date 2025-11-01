@@ -27,3 +27,6 @@ wheels/
 .github/copilot-instructions.md
 .memories/
 AGENTS.md
+
+# VS Code settings
+.vscode/

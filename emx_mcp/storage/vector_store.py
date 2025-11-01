@@ -327,7 +327,7 @@ class VectorStore:
 
     def add_vectors(
         self, vectors: np.ndarray, event_ids: List[str], metadata: List[dict]
-    ) -> dict:
+    ) -> dict:  # sourcery skip: extract-method
         """
         Add vectors to index - retrain if optimal nlist changes significantly.
 
@@ -458,15 +458,18 @@ class VectorStore:
                 continue
 
             event_id = self.vector_id_to_event_id.get(int(vid))
-            if event_id and int(vid) < len(self.metadata):
-                if not self.metadata[int(vid)].get("deleted", False):
-                    distance = float(distances[0][i])
-                    # Keep best distance for each event
-                    if (
-                        event_id not in event_results
-                        or distance > event_results[event_id][0]
-                    ):
-                        event_results[event_id] = (distance, self.metadata[int(vid)])
+            if (
+                event_id
+                and int(vid) < len(self.metadata)
+                and not self.metadata[int(vid)].get("deleted", False)
+            ):
+                distance = float(distances[0][i])
+                # Keep best distance for each event
+                if (
+                    event_id not in event_results
+                    or distance > event_results[event_id][0]
+                ):
+                    event_results[event_id] = (distance, self.metadata[int(vid)])
 
         # Sort by distance (descending = higher similarity for inner product) and take top k
         sorted_events = sorted(
@@ -486,9 +489,7 @@ class VectorStore:
         GPU: Always batch (kernel fusion benefits)
         CPU: Batch only for >=100 queries (overhead otherwise)
         """
-        if self.gpu_enabled:
-            return True
-        return num_queries >= 100
+        return True if self.gpu_enabled else num_queries >= 100
 
     def search_batch(
         self, queries: np.ndarray, k: int = 10, force_batch: bool = False
@@ -522,18 +523,21 @@ class VectorStore:
                     continue
 
                 event_id = self.vector_id_to_event_id.get(int(vid))
-                if event_id and int(vid) < len(self.metadata):
-                    if not self.metadata[int(vid)].get("deleted", False):
-                        distance = float(distances[query_idx][i])
-                        # Keep best distance for each event
-                        if (
-                            event_id not in event_results
-                            or distance > event_results[event_id][0]
-                        ):
-                            event_results[event_id] = (
-                                distance,
-                                self.metadata[int(vid)],
-                            )
+                if (
+                    event_id
+                    and int(vid) < len(self.metadata)
+                    and not self.metadata[int(vid)].get("deleted", False)
+                ):
+                    distance = float(distances[query_idx][i])
+                    # Keep best distance for each event
+                    if (
+                        event_id not in event_results
+                        or distance > event_results[event_id][0]
+                    ):
+                        event_results[event_id] = (
+                            distance,
+                            self.metadata[int(vid)],
+                        )
 
             # Sort by distance (descending = higher similarity) and take top k
             sorted_events = sorted(
@@ -618,7 +622,7 @@ class VectorStore:
         n_vectors = self.index.ntotal
 
         # Use expected count if provided, otherwise use current count
-        target_count = expected_vector_count if expected_vector_count else n_vectors
+        target_count = expected_vector_count or n_vectors
         optimal_nlist = self._calculate_optimal_nlist(target_count)
 
         drift_ratio = (
@@ -717,10 +721,7 @@ class VectorStore:
         try:
             cpu_index = faiss.read_index(str(self.index_path))
 
-            if hasattr(cpu_index, "nlist"):
-                self.nlist = cpu_index.nlist
-            else:
-                self.nlist = None
+            self.nlist = cpu_index.nlist if hasattr(cpu_index, "nlist") else None
 
             if self.gpu_enabled:
                 try:
@@ -746,9 +747,7 @@ class VectorStore:
             with open(self.id_map_path, "r") as f:
                 id_map_data = json.load(f)
 
-            self.event_id_to_vector_ids = {
-                k: v for k, v in id_map_data["event_to_vectors"].items()
-            }
+            self.event_id_to_vector_ids = dict(id_map_data["event_to_vectors"].items())
             self.vector_id_to_event_id = {
                 int(k): v for k, v in id_map_data["vector_to_event"].items()
             }

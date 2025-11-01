@@ -3,11 +3,41 @@
 import time
 import tempfile
 from pathlib import Path
+from typing import List
 
 import pytest
 
 from emx_mcp.memory.project_manager import ProjectMemoryManager
 from emx_mcp.utils.config import load_config
+
+
+def _create_token_sequence(prefix: str, count: int) -> List[str]:
+    """Helper: Generate token sequence."""
+    return [f"{prefix}_{j}" for j in range(count)]
+
+
+def _add_events_batch(manager, events: List[List[str]]) -> None:
+    """Helper: Add multiple events to manager."""
+    manager.add_event(events[0], embeddings=None, metadata={})
+    manager.add_event(events[1], embeddings=None, metadata={})
+    manager.add_event(events[2], embeddings=None, metadata={})
+    manager.add_event(events[3], embeddings=None, metadata={})
+    manager.add_event(events[4], embeddings=None, metadata={})
+    manager.add_event(events[5], embeddings=None, metadata={})
+    manager.add_event(events[6], embeddings=None, metadata={})
+    manager.add_event(events[7], embeddings=None, metadata={})
+    manager.add_event(events[8], embeddings=None, metadata={})
+    manager.add_event(events[9], embeddings=None, metadata={})
+    manager.add_event(events[10], embeddings=None, metadata={})
+    manager.add_event(events[11], embeddings=None, metadata={})
+    manager.add_event(events[12], embeddings=None, metadata={})
+    manager.add_event(events[13], embeddings=None, metadata={})
+    manager.add_event(events[14], embeddings=None, metadata={})
+    manager.add_event(events[15], embeddings=None, metadata={})
+    manager.add_event(events[16], embeddings=None, metadata={})
+    manager.add_event(events[17], embeddings=None, metadata={})
+    manager.add_event(events[18], embeddings=None, metadata={})
+    manager.add_event(events[19], embeddings=None, metadata={})
 
 
 class TestBatchEncoding:
@@ -27,7 +57,19 @@ class TestBatchEncoding:
         config["memory"]["batch_event_threshold"] = 5
         return config
 
-    def test_batch_encoding_faster_than_individual(self, temp_project, config):
+    @pytest.fixture
+    def test_events_20(self):
+        """Generate 20 test events with 26 tokens each."""
+        return [_create_token_sequence(f"token_{i}", 26) for i in range(20)]
+
+    @pytest.fixture
+    def test_tokens_5(self):
+        """Generate 5 test token sequences with 10 tokens each."""
+        return [_create_token_sequence(f"word_{i}", 10) for i in range(5)]
+
+    def test_batch_encoding_faster_than_individual(
+        self, temp_project, config, test_events_20
+    ):
         """Verify batch encoding is faster than per-event encoding."""
         # Create manager with batch encoding enabled
         manager_batch = ProjectMemoryManager(
@@ -45,23 +87,15 @@ class TestBatchEncoding:
             config=config_no_batch,
         )
 
-        # Create test events (26 tokens each, typical segment size)
-        test_events = []
-        for i in range(20):
-            tokens = [f"token_{i}_{j}" for j in range(26)]
-            test_events.append(tokens)
-
         # Time batch encoding (threshold=5, so 4 batches of 5 events)
         start_batch = time.time()
-        for tokens in test_events:
-            manager_batch.add_event(tokens, embeddings=None, metadata={})
-        manager_batch.flush_events()  # Ensure all flushed
+        _add_events_batch(manager_batch, test_events_20)
+        manager_batch.flush_events()
         elapsed_batch = time.time() - start_batch
 
         # Time individual encoding (threshold=1, so 20 separate calls)
         start_individual = time.time()
-        for tokens in test_events:
-            manager_individual.add_event(tokens, embeddings=None, metadata={})
+        _add_events_batch(manager_individual, test_events_20)
         elapsed_individual = time.time() - start_individual
 
         print(f"\nBatch encoding: {elapsed_batch:.2f}s")
@@ -85,24 +119,39 @@ class TestBatchEncoding:
             config=config,
         )
 
-        # Add 4 events (below threshold)
-        for i in range(4):
-            tokens = [f"token_{i}_{j}" for j in range(10)]
-            result = manager.add_event(tokens, embeddings=None, metadata={})
-            # Should be buffered
-            assert result["status"] == "buffered"
-            assert result["buffered_count"] == i + 1
+        # Add 4 events (below threshold) - verify buffering
+        result_0 = manager.add_event(
+            _create_token_sequence("token_0", 10), embeddings=None, metadata={}
+        )
+        result_1 = manager.add_event(
+            _create_token_sequence("token_1", 10), embeddings=None, metadata={}
+        )
+        result_2 = manager.add_event(
+            _create_token_sequence("token_2", 10), embeddings=None, metadata={}
+        )
+        result_3 = manager.add_event(
+            _create_token_sequence("token_3", 10), embeddings=None, metadata={}
+        )
+
+        # All should be buffered with correct counts
+        assert result_0["status"] == "buffered"
+        assert result_1["status"] == "buffered"
+        assert result_2["status"] == "buffered"
+        assert result_3["status"] == "buffered"
+        assert result_0["buffered_count"] == 1
+        assert result_1["buffered_count"] == 2
+        assert result_2["buffered_count"] == 3
+        assert result_3["buffered_count"] == 4
 
         # Add 5th event (hits threshold, triggers flush)
-        tokens = [f"token_4_{j}" for j in range(10)]
-        result = manager.add_event(tokens, embeddings=None, metadata={})
-        # Should be added (flushed)
-        assert result["status"] == "added"
-        assert "event_id" in result
+        flush_result = manager.add_event(
+            _create_token_sequence("token_4", 10), embeddings=None, metadata={}
+        )
+        assert flush_result["status"] == "added"
+        assert "event_id" in flush_result
 
         # Verify 5 events were flushed
-        store = manager.project_store
-        assert store.event_count() == 5
+        assert manager.project_store.event_count() == 5
 
     def test_manual_flush(self, temp_project, config):
         """Test manual flush of pending events."""
@@ -115,10 +164,18 @@ class TestBatchEncoding:
         )
 
         # Add 3 events (below threshold)
-        for i in range(3):
-            tokens = [f"token_{i}_{j}" for j in range(10)]
-            result = manager.add_event(tokens, embeddings=None, metadata={})
-            assert result["status"] == "buffered"
+        result_0 = manager.add_event(
+            _create_token_sequence("token_0", 10), embeddings=None, metadata={}
+        )
+        result_1 = manager.add_event(
+            _create_token_sequence("token_1", 10), embeddings=None, metadata={}
+        )
+        result_2 = manager.add_event(
+            _create_token_sequence("token_2", 10), embeddings=None, metadata={}
+        )
+        assert result_0["status"] == "buffered"
+        assert result_1["status"] == "buffered"
+        assert result_2["status"] == "buffered"
 
         # Manual flush
         flush_result = manager.flush_events()
@@ -141,7 +198,7 @@ class TestBatchEncoding:
         )
 
         # Add event with force_flush=True
-        tokens = [f"token_{i}" for i in range(10)]
+        tokens = _create_token_sequence("token", 10)
         result = manager.add_event(
             tokens, embeddings=None, metadata={}, force_flush=True
         )
@@ -154,7 +211,9 @@ class TestBatchEncoding:
         store = manager.project_store
         assert store.event_count() == 1
 
-    def test_batch_encoding_preserves_embeddings(self, temp_project, config):
+    def test_batch_encoding_preserves_embeddings(
+        self, temp_project, config, test_tokens_5
+    ):
         """Verify batch encoding produces same embeddings as individual."""
         config["memory"]["batch_event_threshold"] = 5
 
@@ -165,32 +224,56 @@ class TestBatchEncoding:
         )
 
         # Add 5 events to trigger batch encoding
-        test_tokens = []
-        for i in range(5):
-            tokens = [f"word_{i}_{j}" for j in range(10)]
-            test_tokens.append(tokens)
-            manager.add_event(tokens, embeddings=None, metadata={})
+        manager.add_event(test_tokens_5[0], embeddings=None, metadata={})
+        manager.add_event(test_tokens_5[1], embeddings=None, metadata={})
+        manager.add_event(test_tokens_5[2], embeddings=None, metadata={})
+        manager.add_event(test_tokens_5[3], embeddings=None, metadata={})
+        manager.add_event(test_tokens_5[4], embeddings=None, metadata={})
 
         # Encode individually for comparison
         encoder = manager.encoder
-        individual_embeddings = [
-            encoder.encode_tokens_with_context(tokens, context_window=10)
-            for tokens in test_tokens
-        ]
+        individual_emb_0 = encoder.encode_tokens_with_context(
+            test_tokens_5[0], context_window=10
+        )
+        individual_emb_1 = encoder.encode_tokens_with_context(
+            test_tokens_5[1], context_window=10
+        )
+        individual_emb_2 = encoder.encode_tokens_with_context(
+            test_tokens_5[2], context_window=10
+        )
+        individual_emb_3 = encoder.encode_tokens_with_context(
+            test_tokens_5[3], context_window=10
+        )
+        individual_emb_4 = encoder.encode_tokens_with_context(
+            test_tokens_5[4], context_window=10
+        )
 
         # Get batch-encoded embeddings from storage
         store = manager.project_store
         event_ids = list(store.event_cache.keys())[:5]
 
-        batch_embeddings = [
-            store.get_event(event_id).embeddings for event_id in event_ids
-        ]
+        batch_emb_0 = store.get_event(event_ids[0]).embeddings
+        batch_emb_1 = store.get_event(event_ids[1]).embeddings
+        batch_emb_2 = store.get_event(event_ids[2]).embeddings
+        batch_emb_3 = store.get_event(event_ids[3]).embeddings
+        batch_emb_4 = store.get_event(event_ids[4]).embeddings
 
         # Verify dimensions match
-        for ind_emb, batch_emb in zip(individual_embeddings, batch_embeddings):
-            assert len(ind_emb) == len(batch_emb), (
-                f"Embedding counts differ: {len(ind_emb)} vs {len(batch_emb)}"
-            )
+        assert len(individual_emb_0) == len(
+            batch_emb_0
+        ), f"Embedding counts differ: {len(individual_emb_0)} vs {len(batch_emb_0)}"
+        assert len(individual_emb_1) == len(
+            batch_emb_1
+        ), f"Embedding counts differ: {len(individual_emb_1)} vs {len(batch_emb_1)}"
+        assert len(individual_emb_2) == len(
+            batch_emb_2
+        ), f"Embedding counts differ: {len(individual_emb_2)} vs {len(batch_emb_2)}"
+        assert len(individual_emb_3) == len(
+            batch_emb_3
+        ), f"Embedding counts differ: {len(individual_emb_3)} vs {len(batch_emb_3)}"
+        assert len(individual_emb_4) == len(
+            batch_emb_4
+        ), f"Embedding counts differ: {len(individual_emb_4)} vs {len(batch_emb_4)}"
 
 
 if __name__ == "__main__":

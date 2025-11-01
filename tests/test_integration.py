@@ -360,12 +360,9 @@ class TestIntegration:
 
         # Should find topic transitions (3 expected, but allow 1-5 for robustness)
         # Boundary detection can be sensitive to embedding similarity and window size
-        assert 1 <= events_found <= 6, (
-            f"Found {events_found} events (expected 1-6). "
-            f"This may indicate window_size={10} is too large for this sequence, "
-            f"or embeddings are too similar between topics. "
-            f"Boundaries: {len(boundaries)}"
-        )
+        assert (
+            1 <= events_found <= 6
+        ), f"Found {events_found} events (expected 1-6). This may indicate window_size=10 is too large for this sequence, or embeddings are too similar between topics. Boundaries: {len(boundaries)}"
 
     @pytest.mark.asyncio
     async def test_stream_pipelined_storage_with_manager(self, mock_project_config):
