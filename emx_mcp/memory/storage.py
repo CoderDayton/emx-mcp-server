@@ -409,9 +409,11 @@ class HierarchicalMemoryStore:
             return result["removed_count"]
         return 0
 
-    def retrain_index(self, force: bool = False) -> dict:
-        """Retrain IVF index."""
-        return self.vector_store.retrain(force)
+    def retrain_index(
+        self, force: bool = False, expected_vector_count: Optional[int] = None
+    ) -> dict:
+        """Retrain IVF index with optional expected vector count for optimal nlist."""
+        return self.vector_store.retrain(force, expected_vector_count)
 
     def get_index_info(self) -> dict:
         """Get IVF index statistics."""

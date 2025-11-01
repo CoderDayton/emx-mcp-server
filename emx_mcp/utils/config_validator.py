@@ -227,7 +227,7 @@ class StorageConfig(BaseSettings):
             # Warning: non-standard dimension (still valid)
             pass
         return v
-    
+
     @model_validator(mode="after")
     def validate_sq_config(self) -> "StorageConfig":
         """Validate SQ configuration compatibility."""
@@ -237,13 +237,13 @@ class StorageConfig(BaseSettings):
                 raise ValueError(
                     f"SQ compression requires index_type='IVF' or 'Flat', got '{self.index_type}'"
                 )
-            
+
             # Validate sq_bits (only 8-bit supported)
             if self.sq_bits != 8:
                 raise ValueError(
                     f"SQ compression only supports 8-bit quantization, got {self.sq_bits}-bit"
                 )
-        
+
         return self
 
 

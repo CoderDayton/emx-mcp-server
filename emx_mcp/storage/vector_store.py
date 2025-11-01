@@ -500,20 +500,25 @@ class VectorStore:
             "gpu_device_id": self.gpu_device_id,
         }
 
-    def retrain(self, force: bool = False) -> dict:
+    def retrain(
+        self, force: bool = False, expected_vector_count: Optional[int] = None
+    ) -> dict:
         """
-        Check index health - retraining not supported for IVF+SQ.
+        Check index health and optionally update nlist for expected vector count.
 
         FAISS IVF nlist is a constructor parameter that cannot be changed
-        after index creation without rebuilding from scratch. To use a
-        different nlist value, clear() and rebuild the index.
+        after index creation without rebuilding from scratch. If expected_vector_count
+        is provided and force=True, will clear and rebuild index with optimal nlist.
         """
         if not self.is_trained:
             logger.warning("Index not trained yet")
             return {"status": "not_trained"}
 
         n_vectors = self.index.ntotal
-        optimal_nlist = self._calculate_optimal_nlist(n_vectors)
+
+        # Use expected count if provided, otherwise use current count
+        target_count = expected_vector_count if expected_vector_count else n_vectors
+        optimal_nlist = self._calculate_optimal_nlist(target_count)
 
         drift_ratio = (
             abs(optimal_nlist - self.nlist) / optimal_nlist
@@ -521,9 +526,59 @@ class VectorStore:
             else 0
         )
 
+        # If force=True and expected_vector_count provided, rebuild with new nlist
+        if force and expected_vector_count and drift_ratio > 0.1:
+            logger.info(
+                f"Force rebuild: current nlist={self.nlist}, "
+                f"optimal={optimal_nlist} for {target_count} vectors"
+            )
+
+            # Save all existing vectors and metadata
+            all_vectors = []
+            all_ids = []
+            all_metadata = []
+
+            for vec_id in range(self.index.ntotal):
+                vec = np.zeros(self.dimension, dtype="float32")
+                self.index.reconstruct(vec_id, vec)
+                all_vectors.append(vec)
+                all_ids.append(vec_id)
+                all_metadata.append(
+                    self.metadata[vec_id] if vec_id < len(self.metadata) else {}
+                )
+
+            # Update nlist and recreate index
+            self.nlist = optimal_nlist
+            self.expected_vector_count = expected_vector_count
+            self._create_index()
+
+            # Re-add all vectors
+            if all_vectors:
+                vectors_array = np.array(all_vectors, dtype="float32")
+                if not self.is_trained and len(vectors_array) >= self.min_training_size:
+                    self.index.train(vectors_array)  # type: ignore
+                    self.is_trained = True
+
+                if self.is_trained:
+                    ids_array = np.array(all_ids, dtype="int64")
+                    self.index.add_with_ids(vectors_array, ids_array)  # type: ignore
+                    self.metadata = all_metadata
+                    self.next_vector_id = max(all_ids) + 1
+
+            self._save()
+
+            return {
+                "status": "rebuilt",
+                "success": True,
+                "nlist": self.nlist,
+                "optimal": optimal_nlist,
+                "vectors_restored": len(all_vectors),
+            }
+
         if drift_ratio < 0.1:
             return {
                 "status": "optimal",
+                "success": True,
                 "nlist": self.nlist,
                 "optimal": optimal_nlist,
                 "drift_ratio": drift_ratio,
@@ -531,15 +586,16 @@ class VectorStore:
 
         logger.warning(
             f"nlist drift detected: current={self.nlist}, optimal={optimal_nlist} "
-            f"(drift={drift_ratio:.1%}). To fix: clear() and rebuild index."
+            f"(drift={drift_ratio:.1%}). Use force=True with expected_vector_count to rebuild."
         )
 
         return {
             "status": "drift_detected",
+            "success": False,
             "nlist": self.nlist,
             "optimal": optimal_nlist,
             "drift_ratio": drift_ratio,
-            "note": "IVF+SQ nlist cannot be changed after training. Clear and rebuild to fix.",
+            "note": "IVF+SQ nlist cannot be changed after training. Use force=True with expected_vector_count to rebuild.",
         }
 
     def clear(self):

@@ -113,9 +113,11 @@ class EmbeddingEncoder:
             if device == "cuda" and self.gpu_config.get("enable_pinned_memory", False):
                 try:
                     # Test if pinned memory works on this system
-                    test_tensor = torch.zeros(10, 384, pin_memory=True, device="cuda")
+                    # Create pinned tensor on CPU, then transfer to GPU
+                    test_tensor = torch.zeros(10, 384, pin_memory=True)
+                    test_tensor_gpu = test_tensor.to(device)
+                    del test_tensor, test_tensor_gpu
                     logger.debug("Pinned memory available on this system")
-                    self.gpu_config["enable_pinned_memory"] = True
                 except RuntimeError as e:
                     logger.warning(f"Pinned memory not available (WSL2 issue?): {e}")
                     self.gpu_config["enable_pinned_memory"] = False
@@ -292,33 +294,13 @@ class EmbeddingEncoder:
                 ctx.__exit__(type(e), e, e.__traceback__)
             raise
 
-    def encode_individual_tokens(self, tokens: List[str]) -> np.ndarray:
-        """
-        Encode each token separately (for per-token embeddings).
-
-        Args:
-            tokens: List of token strings
-
-        Returns:
-            Embeddings array of shape (n_tokens, dimension)
-        """
-        if not tokens:
-            raise ValueError("Token list cannot be empty")
-
-        embeddings = self.model.encode(
-            tokens,
-            batch_size=self.batch_size,
-            convert_to_numpy=True,
-            show_progress_bar=False,
-            device=self.device,
-        )
-        return embeddings.astype(np.float32)
-
     def encode_tokens_with_context(
         self, tokens: List[str], context_window: int = 10
     ) -> np.ndarray:
         """
         Encode tokens individually with local context for surprise calculation.
+
+        PERFORMANCE: O(n) - Single pass encoding all tokens in one batch.
 
         Args:
             tokens: List of token strings
@@ -330,23 +312,25 @@ class EmbeddingEncoder:
         if not tokens:
             raise ValueError("Token list cannot be empty")
 
+        n_tokens = len(tokens)
         logger.info(
-            f"Building context strings for {len(tokens)} tokens (window={context_window})"
+            f"Building context strings for {n_tokens} tokens (window={context_window})"
         )
 
+        # Build all context strings upfront - O(n) operation
         context_texts = []
-        for i in range(len(tokens)):
+        for i in range(n_tokens):
             start = max(0, i - context_window)
             context_tokens = tokens[start : i + 1]
             context_texts.append(" ".join(context_tokens))
 
-        logger.info(
-            f"Encoding {len(context_texts)} contexts in batch (batch_size={self.batch_size})..."
-        )
+        # CRITICAL: Encode ALL contexts in ONE batch call - O(n) not O(n*batch_size)
+        # sentence-transformers handles internal batching automatically
+        logger.info(f"Encoding {n_tokens} contexts in single batch operation...")
 
         embeddings = self.model.encode(
             context_texts,
-            batch_size=self.batch_size,
+            batch_size=self.batch_size,  # Internal batching, not repeated calls
             convert_to_numpy=True,
             show_progress_bar=False,
             device=self.device,

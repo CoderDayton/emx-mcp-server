@@ -26,7 +26,7 @@ class ProjectMemoryManager:
     def __init__(self, project_path: str, global_path: str, config: dict):
         self.project_path = Path(project_path)
         self.global_path = Path(global_path)
-        
+
         # Enrich config with hardware detection (device/batch_size)
         # This makes config the single source of truth for runtime values
         enriched_config = enrich_config_with_hardware(config)
@@ -86,8 +86,12 @@ class ProjectMemoryManager:
             ) from e
 
         # Create project and global stores (after encoder initialization for auto-detection)
-        self.project_store = HierarchicalMemoryStore(str(self.memory_dir), enriched_config)
-        self.global_store = HierarchicalMemoryStore(str(self.global_path), enriched_config)
+        self.project_store = HierarchicalMemoryStore(
+            str(self.memory_dir), enriched_config
+        )
+        self.global_store = HierarchicalMemoryStore(
+            str(self.global_path), enriched_config
+        )
 
         # Initialize segmentation and retrieval
         self.segmenter = SurpriseSegmenter(gamma=enriched_config["memory"]["gamma"])
@@ -190,7 +194,7 @@ class ProjectMemoryManager:
         """
         # Compute embeddings if not provided
         if embeddings is None:
-            embeddings = self.encoder.encode_individual_tokens(tokens)
+            embeddings = self.encoder.encode_tokens_with_context(tokens)
             logger.info(f"Generated embeddings locally for {len(tokens)} tokens")
 
         # Generate UUID-based event ID (no collisions, works across sessions)
@@ -208,9 +212,11 @@ class ProjectMemoryManager:
         """Remove events from project memory."""
         return self.project_store.remove_events(event_ids)
 
-    def retrain_index(self, force: bool = False) -> dict:
-        """Retrain IVF index."""
-        return self.project_store.retrain_index(force)
+    def retrain_index(
+        self, force: bool = False, expected_vector_count: Optional[int] = None
+    ) -> dict:
+        """Retrain IVF index with optional expected vector count for optimal nlist."""
+        return self.project_store.retrain_index(force, expected_vector_count)
 
     def optimize_memory(
         self, prune_old_events: bool, compress_embeddings: bool
@@ -304,7 +310,7 @@ class ProjectMemoryManager:
         Returns:
             Embeddings array
         """
-        return self.encoder.encode_individual_tokens(tokens)
+        return self.encoder.encode_tokens_with_context(tokens)
 
     def has_encoder(self) -> bool:
         """Check if embedding encoder is available."""
@@ -313,7 +319,7 @@ class ProjectMemoryManager:
     def get_performance_metrics(self) -> dict:
         """
         Get real-time indexing performance metrics for production monitoring.
-        
+
         Returns:
             Dictionary containing:
             - embedding: throughput, batch size, device
@@ -321,16 +327,16 @@ class ProjectMemoryManager:
             - memory: index size, metadata size, total footprint
         """
         import os
-        
+
         index_info = self.get_index_info()
-        
+
         # Calculate memory footprint
         vector_store_path = self.memory_dir / "vector_store"
         graph_store_path = self.memory_dir / "graph_store.db"
-        
+
         index_size_mb = 0.0
         metadata_size_mb = 0.0
-        
+
         if vector_store_path.exists():
             for file_path in vector_store_path.rglob("*"):
                 if file_path.is_file():
@@ -339,15 +345,15 @@ class ProjectMemoryManager:
                         metadata_size_mb += size_bytes / (1024 * 1024)
                     else:
                         index_size_mb += size_bytes / (1024 * 1024)
-        
+
         if graph_store_path.exists():
             metadata_size_mb += graph_store_path.stat().st_size / (1024 * 1024)
-        
+
         # Embedding throughput estimation (based on configured batch size)
         # Actual throughput will vary; this provides configured capacity
         embedding_batch_size = self.config["model"]["batch_size"]
         embedding_device = self.config["model"]["device"]
-        
+
         return {
             "embedding": {
                 "model": self.encoder.model_name,
@@ -375,7 +381,9 @@ class ProjectMemoryManager:
                 "total_size_mb": round(index_size_mb + metadata_size_mb, 2),
                 "vector_count": index_info["total_vectors"],
                 "avg_bytes_per_vector": (
-                    round((index_size_mb * 1024 * 1024) / index_info["total_vectors"], 2)
+                    round(
+                        (index_size_mb * 1024 * 1024) / index_info["total_vectors"], 2
+                    )
                     if index_info["total_vectors"] > 0
                     else 0
                 ),

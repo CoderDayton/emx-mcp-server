@@ -1,21 +1,10 @@
 #!/usr/bin/env python3
-"""
-COMPLETE e2e_60k_tokens_benchmark.py - With All Fixes
-
-Expected results with all 3 files fixed:
-- 903 events created ✅
-- 903 vectors in index ✅
-- nlist=156 (optimal for 903, FIXED forever) ✅
-- ~15-20ms retrieval latency ✅
-"""
-
 import json
 import logging
 import os
 import sys
 import time
 from pathlib import Path
-from typing import Optional
 
 import psutil
 

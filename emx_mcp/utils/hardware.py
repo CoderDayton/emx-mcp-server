@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 def detect_device() -> Literal["cpu", "cuda"]:
     """
     Detect available compute device.
-    
+
     Returns:
         "cuda" if GPU available and CUDA installed, else "cpu"
     """
@@ -33,11 +33,11 @@ def detect_device() -> Literal["cpu", "cuda"]:
 def detect_batch_size(device: str, model_name: str = "all-MiniLM-L6-v2") -> int:
     """
     Determine optimal batch size based on device and available memory.
-    
+
     Args:
         device: Compute device ("cpu" or "cuda")
         model_name: Model name for memory estimation
-        
+
     Returns:
         Batch size (64-512 for GPU based on VRAM, fixed 64 for CPU)
     """
@@ -46,7 +46,9 @@ def detect_batch_size(device: str, model_name: str = "all-MiniLM-L6-v2") -> int:
             import torch
 
             if not torch.cuda.is_available():
-                logger.warning("CUDA device specified but not available. Using CPU batch size.")
+                logger.warning(
+                    "CUDA device specified but not available. Using CPU batch size."
+                )
                 return 64
 
             # GPU: Adaptive based on VRAM
@@ -78,20 +80,21 @@ def detect_batch_size(device: str, model_name: str = "all-MiniLM-L6-v2") -> int:
 def enrich_config_with_hardware(config: dict) -> dict:
     """
     Enrich config dict with concrete hardware values.
-    
+
     Replaces None device/batch_size with detected values.
     Validates CUDA availability when device="cuda" is explicitly set.
-    
+
     Args:
         config: Configuration dict from load_config()
-        
+
     Returns:
         Updated config dict with concrete device/batch_size
-        
+
     Raises:
         RuntimeError: If CUDA requested but not available
     """
     model_config = config.get("model", {})
+    gpu_config = config.get("gpu", {})
     device = model_config.get("device")
     batch_size = model_config.get("batch_size")
     model_name = model_config.get("name", "all-MiniLM-L6-v2")
@@ -108,7 +111,9 @@ def enrich_config_with_hardware(config: dict) -> dict:
                 logger.error("CUDA requested but not available. Falling back to CPU.")
                 device = "cpu"
         except ImportError:
-            logger.error("CUDA requested but PyTorch not available. Falling back to CPU.")
+            logger.error(
+                "CUDA requested but PyTorch not available. Falling back to CPU."
+            )
             device = "cpu"
 
     # Batch size resolution
@@ -120,5 +125,6 @@ def enrich_config_with_hardware(config: dict) -> dict:
     enriched_config["model"] = model_config.copy()
     enriched_config["model"]["device"] = device
     enriched_config["model"]["batch_size"] = batch_size
+    enriched_config["gpu"] = gpu_config.copy()
 
     return enriched_config

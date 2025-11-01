@@ -1,0 +1,142 @@
+{
+  "config": {
+    "corpus_size_tokens": 60000,
+    "timestamp": "2025-11-01 02:18:25"
+  },
+  "system": {
+    "platform": "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.39",
+    "cpu_model": "x86_64",
+    "cpu_cores": 6,
+    "cpu_threads": 12,
+    "ram_gb": 23.47,
+    "gpu_available": true,
+    "gpu_name": "NVIDIA GeForce RTX 4090",
+    "python_version": "3.12.3"
+  },
+  "ingestion": {
+    "total_tokens": 60042,
+    "num_events": 2438,
+    "tokens_per_event_avg": 24,
+    "segmentation_time_sec": 4.814,
+    "segmentation_throughput_tokens_per_sec": 12473.0,
+    "add_events_time_sec": 143.931,
+    "add_events_throughput_events_per_sec": 16.9,
+    "total_time_sec": 148.744,
+    "memory_delta_mb": 841.84,
+    "index_trained": true,
+    "total_vectors": 60044,
+    "nlist": 881,
+    "optimal_nlist": 980,
+    "nlist_ratio": 0.899,
+    "nlist_status": "optimal"
+  },
+  "retrieval": {
+    "num_queries": 10,
+    "k_per_query": 10,
+    "latency_ms": {
+      "min": 37.91,
+      "avg": 57.63,
+      "p50": 57.52,
+      "p95": 78.92,
+      "p99": 85.91,
+      "max": 87.65
+    },
+    "results_per_query": {
+      "min": 15,
+      "avg": 15.0,
+      "max": 15
+    },
+    "throughput_qps": 17.4
+  },
+  "management": {
+    "stats_query_time_ms": 0.03,
+    "estimate_time_ms": 0.0,
+    "project_events": 2438,
+    "global_events": 0,
+    "local_context_size": 4096,
+    "index_nlist": 881,
+    "index_optimal_nlist": 980,
+    "index_nlist_ratio": 0.899,
+    "index_status": "optimal"
+  },
+  "batch_search": {
+    "batch_sizes_tested": [
+      10,
+      50,
+      100,
+      200
+    ],
+    "results": {
+      "10": {
+        "encode_time_sec": 0.046,
+        "search_time_sec": 0.006,
+        "total_time_sec": 0.052,
+        "queries_per_sec": 193.4,
+        "avg_latency_ms": 5.17,
+        "total_results_found": 100,
+        "avg_results_per_query": 10.0,
+        "avg_relevance_distance": 0.5097
+      },
+      "50": {
+        "encode_time_sec": 0.167,
+        "search_time_sec": 0.023,
+        "total_time_sec": 0.19,
+        "queries_per_sec": 263.6,
+        "avg_latency_ms": 3.79,
+        "total_results_found": 500,
+        "avg_results_per_query": 10.0,
+        "avg_relevance_distance": 0.507
+      },
+      "100": {
+        "encode_time_sec": 0.335,
+        "search_time_sec": 0.038,
+        "total_time_sec": 0.373,
+        "queries_per_sec": 268.3,
+        "avg_latency_ms": 3.73,
+        "total_results_found": 1000,
+        "avg_results_per_query": 10.0,
+        "avg_relevance_distance": 0.5025
+      },
+      "200": {
+        "encode_time_sec": 0.66,
+        "search_time_sec": 0.071,
+        "total_time_sec": 0.73,
+        "queries_per_sec": 273.9,
+        "avg_latency_ms": 3.65,
+        "total_results_found": 2000,
+        "avg_results_per_query": 10.0,
+        "avg_relevance_distance": 0.5027
+      }
+    },
+    "gpu_enabled": true,
+    "device": "cuda"
+  },
+  "transfer": {
+    "export_time_sec": 71.949,
+    "export_size_mb": 207.31,
+    "export_events": 2438,
+    "export_throughput_mb_per_sec": 2.88,
+    "import_time_sec": 3.272,
+    "import_throughput_mb_per_sec": 63.36
+  },
+  "summary": {
+    "overall_performance": {
+      "total_runtime_sec": 148.74,
+      "ingestion_throughput_tokens_per_sec": 404.0,
+      "ingestion_throughput_events_per_sec": 16.4,
+      "retrieval_latency_p50_ms": 57.52,
+      "retrieval_latency_p95_ms": 78.92,
+      "retrieval_throughput_qps": 17.4
+    },
+    "index_quality": {
+      "nlist_ratio": 0.899,
+      "nlist_status": "optimal",
+      "vectors_indexed": 60044
+    },
+    "resource_usage": {
+      "memory_delta_mb": 841.84,
+      "cpu_cores_available": 6,
+      "gpu_available": true
+    }
+  }
+}
