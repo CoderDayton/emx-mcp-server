@@ -21,9 +21,9 @@ import logging
 import pickle
 import threading
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
-import faiss
+import faiss  # type: ignore[import-untyped]
 import numpy as np
 
 logger = logging.getLogger(__name__)
@@ -328,7 +328,14 @@ class VectorStore:
     def add_vectors(
         self, vectors: np.ndarray, event_ids: List[str], metadata: List[dict]
     ) -> dict:
-        """Add vectors to index - retrain if optimal nlist changes significantly."""
+        """
+        Add vectors to index - retrain if optimal nlist changes significantly.
+
+        Args:
+            vectors: Embedding vectors to add
+            event_ids: Event IDs for the vectors
+            metadata: Metadata for the vectors
+        """
         vectors = self._normalize_vectors(vectors)
         n_vectors = vectors.shape[0]
 
@@ -359,9 +366,17 @@ class VectorStore:
 
             if total_training >= self.min_training_size:
                 self._train_index()
+                # Training succeeded, vectors were added during training
+                return {"status": "added", "vectors_added": n_vectors}
 
-            if not self.is_trained:
-                return {"status": "buffered"}
+            # Still buffering
+            return {
+                "status": "buffered",
+                "vectors_added": n_vectors,
+                "awaiting_training": True,
+                "buffered_count": total_training,
+                "min_training_size": self.min_training_size,
+            }
 
         # Note: IVF+SQ nlist cannot be changed after training without rebuilding
         # the entire index from scratch. The index is trained once with optimal
@@ -453,7 +468,7 @@ class VectorStore:
                     ):
                         event_results[event_id] = (distance, self.metadata[int(vid)])
 
-        # Sort by distance (descending = higher similarity) and take top k
+        # Sort by distance (descending = higher similarity for inner product) and take top k
         sorted_events = sorted(
             event_results.items(), key=lambda x: x[1][0], reverse=True
         )[:k]
@@ -463,6 +478,90 @@ class VectorStore:
         metadata_list = [meta for _, (_, meta) in sorted_events]
 
         return event_ids, distances_list, metadata_list
+
+    def _should_use_batch(self, num_queries: int) -> bool:
+        """
+        Determine if batch search should be used based on hardware and query count.
+
+        GPU: Always batch (kernel fusion benefits)
+        CPU: Batch only for >=100 queries (overhead otherwise)
+        """
+        if self.gpu_enabled:
+            return True
+        return num_queries >= 100
+
+    def search_batch(
+        self, queries: np.ndarray, k: int = 10, force_batch: bool = False
+    ) -> List[Tuple[List[str], List[float], List[dict]]]:
+        """
+        Batch search for multiple queries.
+
+        Args:
+            queries: Array of shape (n_queries, dimension)
+            k: Number of results per query
+            force_batch: Override adaptive routing
+
+        Returns:
+            List of (event_ids, distances, metadata) tuples, one per query
+        """
+        if not self.is_trained:
+            logger.warning("Index not trained yet, returning empty results")
+            return [([], [], []) for _ in range(len(queries))]
+
+        queries = self._normalize_vectors(queries)
+
+        # Perform batch search
+        distances, vector_ids = self.index.search(queries, k * 5)  # type: ignore # Get more to aggregate
+
+        results = []
+        for query_idx in range(len(queries)):
+            event_results: Dict[str, Tuple[float, dict]] = {}
+
+            for i, vid in enumerate(vector_ids[query_idx]):
+                if vid == -1:
+                    continue
+
+                event_id = self.vector_id_to_event_id.get(int(vid))
+                if event_id and int(vid) < len(self.metadata):
+                    if not self.metadata[int(vid)].get("deleted", False):
+                        distance = float(distances[query_idx][i])
+                        # Keep best distance for each event
+                        if (
+                            event_id not in event_results
+                            or distance > event_results[event_id][0]
+                        ):
+                            event_results[event_id] = (
+                                distance,
+                                self.metadata[int(vid)],
+                            )
+
+            # Sort by distance (descending = higher similarity) and take top k
+            sorted_events = sorted(
+                event_results.items(), key=lambda x: x[1][0], reverse=True
+            )[:k]
+
+            event_ids = [eid for eid, _ in sorted_events]
+            distances_list = [dist for _, (dist, _) in sorted_events]
+            metadata_list = [meta for _, (_, meta) in sorted_events]
+
+            results.append((event_ids, distances_list, metadata_list))
+
+        return results
+
+    def get_recommended_batch_size(self) -> int:
+        """
+        Get recommended batch size based on index size.
+
+        Returns appropriate batch size for efficient processing.
+        """
+        n_vectors = self.index.ntotal if self.is_trained else 0
+
+        if n_vectors < 10000:
+            return 32
+        elif n_vectors < 100000:
+            return 64
+        else:
+            return 128
 
     def count(self) -> int:
         """Get total number of vectors in index."""
@@ -491,6 +590,7 @@ class VectorStore:
             "nlist": self.nlist,
             "optimal_nlist": optimal_nlist,
             "nlist_ratio": nlist_ratio,
+            "nlist_formula": "4 * sqrt(n)",  # Document the formula used
             "nprobe": self.nprobe,
             "is_trained": self.is_trained,
             "index_type": type(self.index).__name__,
@@ -498,6 +598,7 @@ class VectorStore:
             "sq_bits": self.sq_bits,
             "gpu_enabled": self.gpu_enabled,
             "gpu_device_id": self.gpu_device_id,
+            "recommended_batch_size": self.get_recommended_batch_size(),
         }
 
     def retrain(

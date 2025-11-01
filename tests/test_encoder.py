@@ -5,11 +5,11 @@ import numpy as np
 from pathlib import Path
 import sys
 
+from emx_mcp.embeddings.encoder import EmbeddingEncoder
+
 # Add project root to path for imports
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
-
-from emx_mcp.embeddings.encoder import EmbeddingEncoder
 
 
 class TestEmbeddingEncoder:

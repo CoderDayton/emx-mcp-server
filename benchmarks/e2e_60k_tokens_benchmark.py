@@ -232,7 +232,7 @@ class E2EBenchmark:
         self.metrics["corpus"]["total_tokens"] = len(tokens)
         self.metrics["timings"]["tokenization_sec"] = tokenize_time
 
-        print(f"Tokenized: {len(tokens):,} tokens in {tokenize_time*1000:.2f}ms")
+        print(f"Tokenized: {len(tokens):,} tokens in {tokenize_time * 1000:.2f}ms")
 
         # Update expected vector count based on actual token count
         actual_tokens = len(tokens)
@@ -267,7 +267,7 @@ class E2EBenchmark:
 
         print(
             f"Segmented: {seg_result['num_events']} events "
-            f"in {segment_time*1000:.2f}ms"
+            f"in {segment_time * 1000:.2f}ms"
         )
 
         # Add events (embedding + indexing)
@@ -342,7 +342,7 @@ class E2EBenchmark:
             print(
                 f" Query: '{query[:60]}...' → "
                 f"{len(retrieval_result.get('events', []))} results "
-                f"in {query_time*1000:.2f}ms"
+                f"in {query_time * 1000:.2f}ms"
             )
 
         total_time = time.perf_counter() - start_time
@@ -357,7 +357,7 @@ class E2EBenchmark:
 
         print(
             f"Completed: {len(queries)} queries in {total_time:.2f}s "
-            f"(avg: {avg_time*1000:.2f}ms per query)"
+            f"(avg: {avg_time * 1000:.2f}ms per query)"
         )
 
         return self.metrics["retrieval"]
@@ -375,7 +375,7 @@ class E2EBenchmark:
 
         corpus = generate_synthetic_corpus(target_tokens=60_000)
 
-        remember_result = self.run_remember_phase(corpus, gamma=1.0)
+        self.run_remember_phase(corpus, gamma=1.0)
 
         test_queries = [
             "debugging database connection pool exhaustion",
@@ -385,7 +385,7 @@ class E2EBenchmark:
             "rate limiting token refresh endpoint",
         ]
 
-        recall_result = self.run_recall_phase(test_queries, k=10)
+        self.run_recall_phase(test_queries, k=10)
 
         # Summary
         print("\n" + "=" * 70)
@@ -395,7 +395,7 @@ class E2EBenchmark:
         print(f"Total tokens processed: {self.metrics['corpus']['total_tokens']:,}")
         print(
             f"Segmentation: {self.metrics['segmentation']['num_segments']} events "
-            f"in {self.metrics['segmentation']['time_sec']*1000:.2f}ms"
+            f"in {self.metrics['segmentation']['time_sec'] * 1000:.2f}ms"
         )
         print(f"Storage (embed + index): {self.metrics['timings']['storage_sec']:.2f}s")
         print(
@@ -412,7 +412,7 @@ class E2EBenchmark:
         print(f"Batch size: {self.metrics['config']['batch_size']}")
 
         # Index health
-        print(f"\nIndex Health (EM-LLM 8-bit SQ + Fixed nlist):")
+        print("\nIndex Health (EM-LLM 8-bit SQ + Fixed nlist):")
         idx = self.metrics["indexing"]
         print(
             f" trained={idx['is_trained']}, "

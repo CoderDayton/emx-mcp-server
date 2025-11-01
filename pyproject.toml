@@ -37,6 +37,9 @@ dependencies = [
   "torchaudio>=2.9.0",
   "torchvision>=0.24.0",
   "faiss-gpu-cu12>=1.12.0",
+  "types-pygments>=2.19.0.20250809",
+  "types-pexpect>=4.9.0.20250916",
+  "types-psutil>=7.0.0.20251001",
 ]
 
 [dependency-groups]

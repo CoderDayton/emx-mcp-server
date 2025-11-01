@@ -25,13 +25,13 @@ from typing import Any
 import numpy as np
 import psutil
 
-logger = logging.getLogger(__name__)
-
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
 from emx_mcp.memory.project_manager import ProjectMemoryManager
 from emx_mcp.utils.config import load_config
 from emx_mcp.utils.logging import setup_logging
+
+logger = logging.getLogger(__name__)
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
 class MCPToolsBenchmark:
@@ -195,7 +195,7 @@ File size limit of 100MB keeps storage costs reasonable while serving most use c
 
         logger.info(
             f"⚡ Segmentation: {num_segments} events in {seg_time:.3f}s "
-            f"({actual_tokens/seg_time:.0f} tokens/sec)"
+            f"({actual_tokens / seg_time:.0f} tokens/sec)"
         )
 
         # Store each segment
@@ -239,7 +239,9 @@ File size limit of 100MB keeps storage costs reasonable while serving most use c
             "nlist_status": (
                 "optimal"
                 if index_info["nlist_ratio"] >= 0.85
-                else "acceptable" if index_info["nlist_ratio"] >= 0.5 else "suboptimal"
+                else "acceptable"
+                if index_info["nlist_ratio"] >= 0.5
+                else "suboptimal"
             ),
         }
 
@@ -392,7 +394,9 @@ File size limit of 100MB keeps storage costs reasonable while serving most use c
             "index_status": (
                 "optimal"
                 if nlist_ratio >= 0.85
-                else "acceptable" if nlist_ratio >= 0.5 else "suboptimal"
+                else "acceptable"
+                if nlist_ratio >= 0.5
+                else "suboptimal"
             ),
         }
 
@@ -513,7 +517,6 @@ File size limit of 100MB keeps storage costs reasonable while serving most use c
         import_start = time.time()
         # Simulate import (would need new manager instance in production)
         # For benchmark, we measure time to extract archive
-        import shutil
         import tarfile
 
         with tarfile.open(archive_path, "r:gz") as tar:
@@ -539,7 +542,7 @@ File size limit of 100MB keeps storage costs reasonable while serving most use c
 
         ingestion = self.results["ingestion"]
         retrieval = self.results["retrieval"]
-        management = self.results["management"]
+        _ = self.results["management"]  # Available for future use
 
         # Calculate overall throughput
         total_time = ingestion["total_time_sec"]
@@ -567,7 +570,7 @@ File size limit of 100MB keeps storage costs reasonable while serving most use c
             },
         }
 
-        logger.info(f"\n🚀 INGESTION:")
+        logger.info("\n🚀 INGESTION:")
         logger.info(
             f"  • Throughput: {tokens_per_sec:,.0f} tokens/sec, "
             f"{events_per_sec:.1f} events/sec"
@@ -578,7 +581,7 @@ File size limit of 100MB keeps storage costs reasonable while serving most use c
         )
         logger.info(f"  • Time: {ingestion['total_time_sec']:.2f}s")
 
-        logger.info(f"\n🔍 RETRIEVAL:")
+        logger.info("\n🔍 RETRIEVAL:")
         logger.info(
             f"  • Latency: p50={retrieval['latency_ms']['p50']:.1f}ms, "
             f"p95={retrieval['latency_ms']['p95']:.1f}ms, "
@@ -586,14 +589,14 @@ File size limit of 100MB keeps storage costs reasonable while serving most use c
         )
         logger.info(f"  • Throughput: {retrieval['throughput_qps']:.1f} QPS")
 
-        logger.info(f"\n🎯 INDEX QUALITY:")
+        logger.info("\n🎯 INDEX QUALITY:")
         logger.info(
             f"  • nlist: {ingestion['nlist']} (optimal: {ingestion['optimal_nlist']}, "
             f"ratio: {ingestion['nlist_ratio']:.1%})"
         )
         logger.info(f"  • Status: {ingestion['nlist_status'].upper()}")
 
-        logger.info(f"\n💾 RESOURCES:")
+        logger.info("\n💾 RESOURCES:")
         logger.info(f"  • Memory: +{ingestion['memory_delta_mb']:.1f}MB")
         logger.info(
             f"  • CPU: {self.results['system']['cpu_cores']}c/"

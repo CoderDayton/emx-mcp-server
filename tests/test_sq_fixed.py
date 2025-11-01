@@ -9,9 +9,6 @@ Tests:
 4. Edge cases (small datasets, empty results)
 """
 
-import tempfile
-from pathlib import Path
-
 import numpy as np
 import pytest
 
@@ -57,6 +54,9 @@ class TestSQFixed:
             nprobe=16,
         )
 
+        # Ensure clean state
+        store.clear()
+
         # Add vectors
         result = store.add_vectors(vectors, event_ids, metadata)
         print(f"Add result: {result}")
@@ -67,7 +67,9 @@ class TestSQFixed:
         count = store.count()
         print(f"Store count: {count}, Expected: 1000")
         print(f"Is trained: {store.is_trained}")
-        print(f"Training vectors buffered: {sum(v.shape[0] for v in store.training_vectors)}")
+        print(
+            f"Training vectors buffered: {sum(v.shape[0] for v in store.training_vectors)}"
+        )
         assert count == 1000
 
         # Search
@@ -80,7 +82,7 @@ class TestSQFixed:
         assert len(found_ids) == len(found_metadata)
         assert event_ids[0] in found_ids, "Query vector not found in results"
 
-        print(f"✓ Basic functionality test passed")
+        print("✓ Basic functionality test passed")
         print(f"  - Added {store.count()} vectors")
         print(f"  - Search returned {len(found_ids)} results")
         print(f"  - Top result: {found_ids[0]} (distance: {distances[0]:.4f})")
@@ -116,10 +118,10 @@ class TestSQFixed:
                 recall_hits += 1
 
         recall = recall_hits / num_queries
-        print(f"✓ Recall@10: {recall*100:.1f}% ({recall_hits}/{num_queries})")
+        print(f"✓ Recall@10: {recall * 100:.1f}% ({recall_hits}/{num_queries})")
 
         # Assert recall is within expected range
-        assert recall >= 0.95, f"Recall {recall*100:.1f}% below target (95%+)"
+        assert recall >= 0.95, f"Recall {recall * 100:.1f}% below target (95%+)"
 
     def test_gpu_acceleration(self, temp_storage, small_dataset):
         """Test GPU acceleration status."""
@@ -136,9 +138,8 @@ class TestSQFixed:
         store.add_vectors(vectors, event_ids, metadata)
 
         info = store.get_info()
-        print(f"✓ GPU configuration:")
+        print("✓ GPU configuration:")
         print(f"  - GPU enabled: {info['gpu_enabled']}")
-        print(f"  - GPU count: {info['gpu_count']}")
         print(f"  - Index type: {info['index_type']}")
 
         # GPU should be available on RTX 4090 system
@@ -162,15 +163,13 @@ class TestSQFixed:
 
         # Calculate expected memory savings
         original_size = vectors.nbytes  # float32 = 4 bytes per value
-        compressed_size = (
-            vectors.size // 4
-        )  # 8-bit = 1 byte per value (4x compression)
+        compressed_size = vectors.size // 4  # 8-bit = 1 byte per value (4x compression)
 
         info = store.get_info()
-        print(f"✓ Memory compression:")
+        print("✓ Memory compression:")
         print(f"  - Original size: {original_size / 1024 / 1024:.2f} MB")
         print(f"  - Compressed size: ~{compressed_size / 1024 / 1024:.2f} MB")
-        print(f"  - Compression ratio: 4x (float32 → 8-bit)")
+        print("  - Compression ratio: 4x (float32 → 8-bit)")
 
         assert info["use_sq"] is True
 
@@ -237,10 +236,12 @@ class TestSQFixed:
         found_ids, distances, _ = store.search(query, k=1)
 
         if len(found_ids) > 0:
-            print(f"✓ Normalization test passed")
+            print("✓ Normalization test passed")
             print(f"  - Query-self distance: {distances[0]:.4f}")
             # After normalization, cosine similarity should be ~1.0 (distance ~0.0)
-            assert distances[0] > 0.95, "Self-similarity should be high after normalization"
+            assert distances[0] > 0.95, (
+                "Self-similarity should be high after normalization"
+            )
 
     def test_persistence(self, temp_storage, small_dataset):
         """Test index save/load persistence."""

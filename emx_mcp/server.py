@@ -76,7 +76,9 @@ def get_memory_status() -> dict:
                 else (
                     "acceptable"
                     if nlist_ratio >= 0.5
-                    else "suboptimal" if nlist_ratio > 0 else "not_trained"
+                    else "suboptimal"
+                    if nlist_ratio > 0
+                    else "not_trained"
                 )
             ),
             "nprobe": index_info.get("nprobe", 8),
@@ -136,7 +138,6 @@ def remember_context(
 
     # Update expected vector count for optimal nlist if provided
     if expected_tokens:
-        actual_tokens = len(tokens)
         # Estimate: ~27 vectors per event, ~30 tokens per event
         expected_events = expected_tokens // 30
         expected_vectors = expected_events * 27
@@ -152,7 +153,7 @@ def remember_context(
             f"nlist={vs.nlist}, training at {min_training}"
         )
 
-    results = {
+    results: dict[str, Any] = {
         "status": "success",
         "tokens_processed": len(tokens),
         "event_ids": [],
@@ -266,7 +267,12 @@ def recall_memories(
     query_embedding = manager.encode_query(query)
 
     # Retrieve from project memory (always if scope != global)
-    results = {"status": "success", "query": query, "scope": scope, "memories": []}
+    results: dict[str, Any] = {
+        "status": "success",
+        "query": query,
+        "scope": scope,
+        "memories": [],
+    }
 
     if scope in ["project", "both"]:
         project_results = manager.retrieve_memories(
@@ -304,18 +310,20 @@ def recall_memories(
     index_info = manager.get_index_info()
     total_vecs = index_info.get("total_vectors", 0)
     current_nlist = index_info.get("nlist", 0)
-    optimal_nlist = int(4 * (total_vecs**0.5)) if total_vecs > 0 else 0
-    nlist_ratio = current_nlist / optimal_nlist if optimal_nlist > 0 else 0.0
+    optimal_nlist_val = int(4 * (total_vecs**0.5)) if total_vecs > 0 else 0
+    nlist_ratio = current_nlist / optimal_nlist_val if optimal_nlist_val > 0 else 0.0
 
     results["total_retrieved"] = len(results["memories"])
     results["index_health"] = {
         "nlist": current_nlist,
-        "optimal_nlist": optimal_nlist,
+        "optimal_nlist": optimal_nlist_val,
         "nlist_ratio": nlist_ratio,
         "status": (
             "optimal"
             if nlist_ratio >= 0.85
-            else "acceptable" if nlist_ratio >= 0.5 else "suboptimal"
+            else "acceptable"
+            if nlist_ratio >= 0.5
+            else "suboptimal"
         ),
     }
 
@@ -383,7 +391,9 @@ def manage_memory(
                     else (
                         "acceptable"
                         if nlist_ratio >= 0.5
-                        else "suboptimal" if nlist_ratio > 0 else "not_trained"
+                        else "suboptimal"
+                        if nlist_ratio > 0
+                        else "not_trained"
                     )
                 ),
                 "nprobe": index_info.get("nprobe", 8),
@@ -580,7 +590,9 @@ def transfer_memory(
                 "status": (
                     "optimal"
                     if nlist_ratio >= 0.85
-                    else "acceptable" if nlist_ratio >= 0.5 else "suboptimal"
+                    else "acceptable"
+                    if nlist_ratio >= 0.5
+                    else "suboptimal"
                 ),
                 "recommendation": (
                     "Index optimal"
@@ -651,40 +663,36 @@ def search_memory_batch(
 
     vector_store = manager.project_store.vector_store
 
-    # Determine routing decision
-    will_use_batch = force_batch or vector_store._should_use_batch(len(queries))
-    routing_reason = (
-        "forced"
-        if force_batch
-        else (
-            "gpu_enabled"
-            if vector_store.gpu_enabled
-            else (
-                f"cpu_query_count>={100}"
-                if will_use_batch
-                else f"cpu_query_count<{100}"
-            )
+    # TODO: Implement batch search methods in VectorStore
+    # The following methods don't exist yet:
+    # - _should_use_batch()
+    # - search_batch()
+    # For now, fall back to sequential search
+    results_per_query: list[dict[str, Any]] = []
+    for idx, (query, query_emb) in enumerate(zip(queries, query_embeddings)):
+        # Use standard search for each query
+        search_result = manager.retrieve_memories(
+            query_emb.tolist(),
+            k_similarity=k,
+            k_contiguity=0,
+            use_contiguity=False,
         )
-    )
 
-    # Execute batch search
-    batch_results = vector_store.search_batch(
-        query_embeddings, k, force_batch=force_batch
-    )
+        event_ids = [ev["event_id"] for ev in search_result.get("events", [])]
+        distances = [ev.get("distance", 0.0) for ev in search_result.get("events", [])]
 
-    # Format results per query
-    results_per_query = []
-    for idx, (event_ids, distances, metadata) in enumerate(batch_results):
-        result_entry = {
+        result_entry: dict[str, Any] = {
             "query_index": idx,
-            "query_text": queries[idx] if format == "detailed" else None,
+            "query_text": query if format == "detailed" else None,
             "event_ids": event_ids,
             "relevance_scores": [float(d) for d in distances],
             "results_found": len(event_ids),
         }
 
         if format == "detailed":
-            result_entry["metadata"] = metadata
+            result_entry["metadata"] = [
+                ev.get("metadata", {}) for ev in search_result.get("events", [])
+            ]
 
         results_per_query.append(result_entry)
 
@@ -701,8 +709,8 @@ def search_memory_batch(
         "results": results_per_query,
         "performance": {
             "gpu_enabled": vector_store.gpu_enabled,
-            "used_batch_api": will_use_batch,
-            "routing_reason": routing_reason,
+            "used_batch_api": False,  # Sequential search until batch methods implemented
+            "routing_reason": "sequential_fallback",
             "nlist": current_nlist,
             "optimal_nlist": optimal_nlist,
             "nlist_ratio": nlist_ratio,
@@ -712,12 +720,14 @@ def search_memory_batch(
             "status": (
                 "optimal"
                 if nlist_ratio >= 0.85
-                else "acceptable" if nlist_ratio >= 0.5 else "suboptimal"
+                else "acceptable"
+                if nlist_ratio >= 0.5
+                else "suboptimal"
             ),
             "recommendation": (
                 "Index optimal for batch search"
                 if nlist_ratio >= 0.85
-                else f"Suboptimal nlist may affect recall - consider retraining"
+                else "Suboptimal nlist may affect recall - consider retraining"
             ),
         },
     }

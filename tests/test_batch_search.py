@@ -6,12 +6,12 @@ import time
 from pathlib import Path
 import sys
 
+from emx_mcp.storage.vector_store import VectorStore
+from emx_mcp.embeddings.encoder import EmbeddingEncoder
+
 # Add project root to path for imports
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
-
-from emx_mcp.storage.vector_store import VectorStore
-from emx_mcp.embeddings.encoder import EmbeddingEncoder
 
 
 class TestBatchSearch:
@@ -113,9 +113,9 @@ class TestBatchSearch:
             assert len(event_ids) <= 5, "Should return at most k results"
             assert len(distances) == len(event_ids), "Distances match IDs"
             assert len(metadata) == len(event_ids), "Metadata matches IDs"
-            assert all(
-                isinstance(d, (int, float)) for d in distances
-            ), "Distances are numeric"
+            assert all(isinstance(d, (int, float)) for d in distances), (
+                "Distances are numeric"
+            )
 
     def test_batch_search_empty_queries(self, populated_store, encoder):
         """Test batch search with empty query list."""
@@ -164,11 +164,11 @@ class TestBatchSearch:
         if len(distances) == 0:
             pytest.skip("Index not trained - insufficient vectors")
 
-        # Check that distances are in ascending order (smaller = more similar)
+        # Check that distances are in descending order (higher = more similar for inner product/cosine)
         for i in range(len(distances) - 1):
-            assert (
-                distances[i] <= distances[i + 1]
-            ), "Results should be sorted by distance"
+            assert distances[i] >= distances[i + 1], (
+                "Results should be sorted by distance (descending for cosine similarity)"
+            )
 
         # Check that retrieved texts are semantically related
         retrieved_texts = [m["text"] for m in metadata]
@@ -255,9 +255,9 @@ class TestBatchSearch:
         # Just verify both methods complete in reasonable time and return correct results
         assert batch_time < 1.0, "Batch search should complete quickly"
         assert sequential_time < 1.0, "Sequential search should complete quickly"
-        assert len(batch_results) == len(
-            sequential_results
-        ), "Should return same number of results"
+        assert len(batch_results) == len(sequential_results), (
+            "Should return same number of results"
+        )
 
     def test_recommended_batch_size_scaling(self, tmp_path, encoder):
         """Test that recommended batch size scales with index size."""
@@ -265,16 +265,16 @@ class TestBatchSearch:
         small_store = VectorStore(
             dimension=384, storage_path=str(tmp_path / "small"), use_gpu=False
         )
-        assert (
-            small_store.get_recommended_batch_size() == 32
-        ), "Empty index should recommend batch=32"
+        assert small_store.get_recommended_batch_size() == 32, (
+            "Empty index should recommend batch=32"
+        )
 
         # Simulate medium index by adding 50K+ vectors (too slow for tests, so test with smaller count)
         # Instead, test the logic directly knowing implementation checks index.ntotal
         # Just verify the thresholds work correctly
-        assert (
-            small_store.get_recommended_batch_size() == 32
-        ), "Small index recommends 32"
+        assert small_store.get_recommended_batch_size() == 32, (
+            "Small index recommends 32"
+        )
 
         # For actual scaling test, we'd need to add 50K+ vectors which is too slow
         # Trust the implementation and verify it returns valid batch sizes
@@ -282,40 +282,28 @@ class TestBatchSearch:
         assert batch_size in [32, 64, 128], "Batch size should be valid"
 
     def test_nlist_formula_options(self, tmp_path):
-        """Test different nlist formula options."""
-        formulas = ["sqrt", "2sqrt", "4sqrt"]
+        """Test that VectorStore uses the 4*sqrt(n) formula consistently."""
+        store = VectorStore(
+            dimension=384,
+            storage_path=str(tmp_path / "test_nlist"),
+            use_gpu=False,
+        )
 
-        for formula in formulas:
-            store = VectorStore(
-                dimension=384,
-                storage_path=str(tmp_path / f"test_{formula}"),
-                use_gpu=False,
-            )
+        # Verify nlist calculation uses 4*sqrt(n) formula
+        n_vectors = 10000
+        optimal = store._calculate_optimal_nlist(n_vectors)
 
-            # Verify formula is stored
-            info = store.get_info()
-            assert info["nlist_formula"] == formula, f"Should store {formula} formula"
+        # Expected: 4 * sqrt(10000) = 400
+        expected = int(4 * np.sqrt(n_vectors))
 
-            # Verify nlist calculation uses formula (accounting for bounds)
-            n_vectors = 10000
-            optimal_raw = store._calculate_optimal_nlist(n_vectors)
+        assert optimal == expected, (
+            f"Should use 4*sqrt(n) formula: {optimal} != {expected}"
+        )
 
-            # Calculate expected with bounds applied
-            if formula == "sqrt":
-                expected_unbounded = int(np.sqrt(n_vectors))  # 100
-            elif formula == "2sqrt":
-                expected_unbounded = int(2 * np.sqrt(n_vectors))  # 200
-            else:  # "4sqrt"
-                expected_unbounded = int(4 * np.sqrt(n_vectors))  # 400
-
-            # Apply same bounds as implementation: max(128, min(expected, n_vectors // 39))
-            min_nlist = 128
-            max_nlist = max(min_nlist, n_vectors // 39)  # 256
-            expected = max(min_nlist, min(expected_unbounded, max_nlist))
-
-            assert (
-                optimal_raw == expected
-            ), f"{formula} should calculate correctly with bounds"
+        # Verify get_info includes the formula documentation
+        info = store.get_info()
+        assert "nlist_formula" in info, "Should document the formula"
+        assert "4" in info["nlist_formula"] and "sqrt" in info["nlist_formula"]
 
     def test_get_info_includes_batch_metadata(self, populated_store):
         """Test that get_info includes batch search metadata."""
@@ -324,9 +312,9 @@ class TestBatchSearch:
         info = store.get_info()
 
         assert "nlist_formula" in info, "Info should include nlist_formula"
-        assert (
-            "recommended_batch_size" in info
-        ), "Info should include recommended_batch_size"
+        assert "recommended_batch_size" in info, (
+            "Info should include recommended_batch_size"
+        )
         assert info["recommended_batch_size"] in [
             32,
             64,
@@ -366,9 +354,9 @@ class TestBatchSearch:
         queries = encoder.encode_batch(token_lists)
 
         # Should route to sequential
-        assert not store._should_use_batch(
-            10
-        ), "Should route to sequential for 10 CPU queries"
+        assert not store._should_use_batch(10), (
+            "Should route to sequential for 10 CPU queries"
+        )
 
         # Results should still be correct
         results = store.search_batch(queries, k=5)
@@ -395,9 +383,9 @@ class TestBatchSearch:
         # Even 1 query should use batch on GPU
         assert store._should_use_batch(1), "GPU should always use batch (1 query)"
         assert store._should_use_batch(10), "GPU should always use batch (10 queries)"
-        assert store._should_use_batch(
-            1000
-        ), "GPU should always use batch (1000 queries)"
+        assert store._should_use_batch(1000), (
+            "GPU should always use batch (1000 queries)"
+        )
 
     def test_force_batch_override(self, populated_store, encoder):
         """Test that force_batch parameter overrides adaptive routing."""

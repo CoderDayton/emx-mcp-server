@@ -4,10 +4,9 @@ Uses sentence-transformers for efficient, high-quality embeddings.
 """
 
 import numpy as np
-from typing import Any, Callable, List, Optional, Tuple, Union, TYPE_CHECKING
+from typing import List, Optional, TYPE_CHECKING
 import logging
 
-from emx_mcp.gpu.pinned_memory import get_global_pool, TORCH_AVAILABLE
 
 if TYPE_CHECKING:
     import torch
@@ -90,7 +89,9 @@ class EmbeddingEncoder:
             if device == "cuda" and self.torch.__version__ >= "2.0.0":
                 try:
                     self.model[0].auto_model = self.torch.compile(  # type: ignore
-                        self.model[0].auto_model, mode="reduce-overhead", fullgraph=False  # type: ignore
+                        self.model[0].auto_model,
+                        mode="reduce-overhead",
+                        fullgraph=False,  # type: ignore
                     )
                     self._warmup()
                     logger.info("torch.compile enabled on transformer model")

@@ -23,7 +23,6 @@ import logging
 import numpy as np
 import tempfile
 import os
-import uuid
 
 from emx_mcp.storage.vector_store import VectorStore
 from emx_mcp.storage.graph_store import GraphStore

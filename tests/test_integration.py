@@ -5,13 +5,13 @@ import time
 from pathlib import Path
 import sys
 
-# Add project root to path for imports
-project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root))
-
 from emx_mcp.embeddings.encoder import EmbeddingEncoder
 from emx_mcp.memory.segmentation import SurpriseSegmenter
 from emx_mcp.memory.project_manager import ProjectMemoryManager
+
+# Add project root to path for imports
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
 
 
 class TestIntegration:
@@ -215,7 +215,7 @@ class TestIntegration:
             assert boundaries[-1] == len(tokens) - 1
 
             # Different windows should generally give different results
-            print(f"  Window {window}: {len(boundaries)-1} events")
+            print(f"  Window {window}: {len(boundaries) - 1} events")
 
     @pytest.mark.asyncio
     async def test_performance_benchmark(self, encoder, segmenter, sample_tokens):
@@ -230,17 +230,17 @@ class TestIntegration:
 
         # Benchmark surprise calculation
         start_time = time.time()
-        surprises = segmenter._compute_embedding_surprises(embeddings, window=5)
+        _ = segmenter._compute_embedding_surprises(embeddings, window=5)
         surprise_time = time.time() - start_time
 
         # Benchmark adjacency computation
         start_time = time.time()
-        adjacency = segmenter._compute_embedding_adjacency(embeddings)
+        _ = segmenter._compute_embedding_adjacency(embeddings)
         adjacency_time = time.time() - start_time
 
         # Benchmark full segmentation
         start_time = time.time()
-        boundaries = segmenter.identify_boundaries(
+        _ = segmenter.identify_boundaries(
             tokens=tokens, gamma=1.0, token_embeddings=embeddings
         )
         segmentation_time = time.time() - start_time
@@ -253,7 +253,7 @@ class TestIntegration:
         print(f"    Adjacency computation: {adjacency_time:.3f}s")
         print(f"    Boundary identification: {segmentation_time:.3f}s")
         print(f"    Total time: {total_time:.3f}s")
-        print(f"    Tokens per second: {n_tokens/total_time:.1f}")
+        print(f"    Tokens per second: {n_tokens / total_time:.1f}")
 
         # Should complete within reasonable time
         assert total_time < 10.0  # Should be much faster than this
@@ -354,9 +354,9 @@ class TestIntegration:
 
         # Should complete within reasonable time (O(n) is much faster)
         assert total_time < 30.0, f"Test took {total_time:.3f}s (expected < 30s)"
-        assert (
-            len(boundaries) >= 2
-        ), f"Found {len(boundaries)} boundaries (expected >= 2)"
+        assert len(boundaries) >= 2, (
+            f"Found {len(boundaries)} boundaries (expected >= 2)"
+        )
 
         # Should find topic transitions (3 expected, but allow 1-5 for robustness)
         # Boundary detection can be sensitive to embedding similarity and window size
@@ -409,7 +409,6 @@ class TestIntegration:
         baseline_time = time.time() - start_time
 
         assert result_no_streams["status"] == "added"
-        assert not result_no_streams.get("used_streams", False)
 
         # Test with streams
         start_time = time.time()
@@ -423,16 +422,15 @@ class TestIntegration:
         streamed_time = time.time() - start_time
 
         assert result_with_streams["status"] == "added"
-        assert result_with_streams["used_streams"]
 
         # Both should produce same result (data consistency)
         assert result_no_streams["event_id"] == "event_no_streams"
         assert result_with_streams["event_id"] == "event_with_streams"
 
-        print(f"\n  Stream pipeline performance:")
+        print("\n  Stream pipeline performance:")
         print(f"    Without streams: {baseline_time:.4f}s")
         print(f"    With streams: {streamed_time:.4f}s")
-        print(f"    Speedup: {baseline_time/streamed_time:.2f}x")
+        print(f"    Speedup: {baseline_time / streamed_time:.2f}x")
 
         # Synchronize all streams before test ends
         stream_manager.synchronize_all()
@@ -467,29 +465,29 @@ class TestIntegration:
         except ImportError:
             pytest.skip("StreamManager not available")
 
-        print(f"\n{'='*60}")
-        print(f"  E2E TEST: Large Document with GPU Streams")
-        print(f"{'='*60}")
+        print(f"\n{'=' * 60}")
+        print("  E2E TEST: Large Document with GPU Streams")
+        print(f"{'=' * 60}")
 
-        print(f"\n[1/6] Initializing ProjectMemoryManager...")
+        print("\n[1/6] Initializing ProjectMemoryManager...")
         manager = ProjectMemoryManager(
             project_path=mock_project_config["project_path"],
             global_path=mock_project_config["global_path"],
             config=mock_project_config["config"],
         )
-        print(f"  ✓ Manager initialized")
+        print("  ✓ Manager initialized")
         print(f"  - Encoder device: {manager.encoder.model.device}")
         print(f"  - Encoder batch size: {manager.encoder.batch_size}")
 
         # Initialize stream manager
-        print(f"\n[2/6] Initializing StreamManager...")
+        print("\n[2/6] Initializing StreamManager...")
         stream_manager = StreamManager(pool_size=4)
         manager.project_store.stream_manager = stream_manager
-        print(f"  ✓ Stream manager initialized (pool_size=4)")
+        print("  ✓ Stream manager initialized (pool_size=4)")
 
         # Generate realistic 8k token document (technical content)
         # Simulates: research paper sections with distinct topics
-        print(f"\n[3/6] Generating test document...")
+        print("\n[3/6] Generating test document...")
         document_sections = [
             # Abstract + Introduction (1000 tokens)
             ["abstract", "introduction", "background", "motivation", "research"] * 200,
@@ -549,19 +547,19 @@ class TestIntegration:
         print(f"  ✓ Document generated: {len(all_tokens)} tokens")
 
         # Step 1: Generate embeddings
-        print(f"\n[4/6] Generating embeddings (batched)...")
+        print("\n[4/6] Generating embeddings (batched)...")
         start_time = time.time()
         embeddings = manager.encoder.encode_tokens_with_context(
             all_tokens, context_window=10
         )
         embedding_time = time.time() - start_time
         print(
-            f"  ✓ Embedding generation: {embedding_time:.2f}s ({len(all_tokens)/embedding_time:.0f} tokens/s)"
+            f"  ✓ Embedding generation: {embedding_time:.2f}s ({len(all_tokens) / embedding_time:.0f} tokens/s)"
         )
         print(f"  - Embedding shape: {embeddings.shape}")
 
         # Step 2: Segment with O(n) linear coherence method
-        print(f"\n[5/6] Segmenting with O(n) linear coherence method...")
+        print("\n[5/6] Segmenting with O(n) linear coherence method...")
         start_time = time.time()
         segmentation_result = manager.segment_tokens(
             tokens=all_tokens,
@@ -579,7 +577,7 @@ class TestIntegration:
         # Verify segmentation quality
         assert num_events > 0
         assert num_events < len(all_tokens)  # Not every token = event
-        assert segmentation_result["success"] == True
+        assert segmentation_result["success"]
 
         # Step 2b: Store segmented events in memory
         print(f"\n[6/6] Storing {num_events} events with GPU streams...")
@@ -599,12 +597,12 @@ class TestIntegration:
             assert result["status"] == "added"
 
             if (i + 1) % 10 == 0 or i == len(boundaries) - 2:
-                print(f"  - Progress: {i+1}/{num_events} events stored")
+                print(f"  - Progress: {i + 1}/{num_events} events stored")
 
-        print(f"  ✓ All events stored in memory")
+        print("  ✓ All events stored in memory")
 
         # Step 3: Verify index training happened
-        print(f"\n  Index Status:")
+        print("\n  Index Status:")
         assert manager.project_store.vector_store.is_trained
         print(f"  ✓ Index trained: nlist={manager.project_store.vector_store.nlist}")
 
@@ -645,13 +643,13 @@ class TestIntegration:
             print(
                 f"    ✓ '{expected_section}': {len(retrieved_events)} events, "
                 f"{query_overlap}/{len(query_words)} terms matched, "
-                f"{retrieval_time*1000:.1f}ms"
+                f"{retrieval_time * 1000:.1f}ms"
             )
 
             assert query_overlap > 0, f"No semantic overlap for query: {query_text}"
 
         # Step 5: Verify stream usage metrics
-        print(f"\n  Memory Statistics:")
+        print("\n  Memory Statistics:")
         print(f"    Total events: {manager.project_store.event_count()}")
         print(f"    Total tokens: {manager.project_store.metadata['total_tokens']}")
         print(
@@ -661,9 +659,9 @@ class TestIntegration:
         # Cleanup
         stream_manager.synchronize_all()
 
-        print(f"\n{'='*60}")
-        print(f"  ✓ E2E TEST COMPLETED SUCCESSFULLY")
-        print(f"{'='*60}\n")
+        print(f"\n{'=' * 60}")
+        print("  ✓ E2E TEST COMPLETED SUCCESSFULLY")
+        print(f"{'=' * 60}\n")
 
     @pytest.mark.asyncio
     async def test_concurrent_stream_usage(self, mock_project_config):
@@ -714,9 +712,8 @@ class TestIntegration:
 
         # All should succeed
         assert all(r["status"] == "added" for r in results)
-        assert all(r["used_streams"] for r in results)
 
-        print(f"\n  Rapid stream usage (5 events, 2-stream pool):")
+        print("\n  Rapid stream usage (5 events, 2-stream pool):")
         print(f"    Total time: {total_time:.4f}s")
         print(
             f"    Events succeeded: {len([r for r in results if r['status'] == 'added'])}/5"

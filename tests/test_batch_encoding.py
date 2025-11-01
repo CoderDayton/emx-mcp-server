@@ -188,9 +188,9 @@ class TestBatchEncoding:
 
         # Verify dimensions match
         for ind_emb, batch_emb in zip(individual_embeddings, batch_embeddings):
-            assert len(ind_emb) == len(
-                batch_emb
-            ), f"Embedding counts differ: {len(ind_emb)} vs {len(batch_emb)}"
+            assert len(ind_emb) == len(batch_emb), (
+                f"Embedding counts differ: {len(ind_emb)} vs {len(batch_emb)}"
+            )
 
 
 if __name__ == "__main__":

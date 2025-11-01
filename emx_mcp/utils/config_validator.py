@@ -411,7 +411,9 @@ class EMXConfig(BaseSettings):
 
         # Add expected_tokens if set
         if self.expected_tokens is not None:
-            legacy_dict["storage"]["expected_total_tokens"] = self.expected_tokens
+            storage_dict = legacy_dict.get("storage")
+            if isinstance(storage_dict, dict):
+                storage_dict["expected_total_tokens"] = self.expected_tokens
 
         return legacy_dict
 

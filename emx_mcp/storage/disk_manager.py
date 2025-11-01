@@ -32,7 +32,9 @@ class DiskManager:
 
         # Track offloaded events
         self.offloaded_events: Dict[str, str] = {}  # event_id -> file_path
-        self.mmap_cache: Dict[str, Tuple[mmap.mmap, Any]] = {}  # event_id -> (mmap, file_handle)
+        self.mmap_cache: Dict[
+            str, Tuple[mmap.mmap, Any]
+        ] = {}  # event_id -> (mmap, file_handle)
         self.max_mmap_cache = 50  # Max open mmap files
 
         # Load existing offloaded events index

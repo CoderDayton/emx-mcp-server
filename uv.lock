@@ -343,6 +343,9 @@ dependencies = [
     { name = "torch" },
     { name = "torchaudio" },
     { name = "torchvision" },
+    { name = "types-pexpect" },
+    { name = "types-psutil" },
+    { name = "types-pygments" },
 ]
 
 [package.dev-dependencies]
@@ -366,6 +369,9 @@ requires-dist = [
     { name = "torch", specifier = ">=2.9.0" },
     { name = "torchaudio", specifier = ">=2.9.0" },
     { name = "torchvision", specifier = ">=0.24.0" },
+    { name = "types-pexpect", specifier = ">=4.9.0.20250916" },
+    { name = "types-psutil", specifier = ">=7.0.0.20251001" },
+    { name = "types-pygments", specifier = ">=2.19.0.20250809" },
 ]
 
 [package.metadata.requires-dev]
@@ -2088,6 +2094,45 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/5c/38/db80e48b9220c9bce872b0f616ad0446cdf554a40b85c7865cbca99ab3c2/triton-3.5.0-cp313-cp313t-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:c83f2343e1a220a716c7b3ab9fccfcbe3ad4020d189549200e2d2e8d5868bed9", size = 170577179, upload-time = "2025-10-13T16:38:17.865Z" },
     { url = "https://files.pythonhosted.org/packages/ff/60/1810655d1d856c9a4fcc90ee8966d85f552d98c53a6589f95ab2cbe27bb8/triton-3.5.0-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:da0fa67ccd76c3dcfb0bffe1b1c57c685136a6bd33d141c24d9655d4185b1289", size = 170487949, upload-time = "2025-10-13T16:38:24.881Z" },
     { url = "https://files.pythonhosted.org/packages/fb/b7/1dec8433ac604c061173d0589d99217fe7bf90a70bdc375e745d044b8aad/triton-3.5.0-cp314-cp314t-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:317fe477ea8fd4524a6a8c499fb0a36984a56d0b75bf9c9cb6133a1c56d5a6e7", size = 170580176, upload-time = "2025-10-13T16:38:31.14Z" },
+]
+
+[[package]]
+name = "types-docutils"
+version = "0.22.2.20251006"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/30/79/3b5419ad9af32d99c1a953f2c96faa396280fddba22201d3788ff5b41b8a/types_docutils-0.22.2.20251006.tar.gz", hash = "sha256:c36c0459106eda39e908e9147bcff9dbd88535975cde399433c428a517b9e3b2", size = 56658, upload-time = "2025-10-06T02:55:19.477Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d1/47/c1eed8aef21d010e8d726855c1a6346f526c40ce1f76ceabf5cd6775f6a1/types_docutils-0.22.2.20251006-py3-none-any.whl", hash = "sha256:1e61afdeb4fab4ae802034deea3e853ced5c9b5e1d156179000cb68c85daf384", size = 91880, upload-time = "2025-10-06T02:55:18.119Z" },
+]
+
+[[package]]
+name = "types-pexpect"
+version = "4.9.0.20250916"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/0c/e6/cc43e306dc7de14ec7861c24ac4957f688741ae39ae685049695d796b587/types_pexpect-4.9.0.20250916.tar.gz", hash = "sha256:69e5fed6199687a730a572de780a5749248a4c5df2ff1521e194563475c9928d", size = 13322, upload-time = "2025-09-16T02:49:25.61Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/aa/6d/7740e235a9fb2570968da7d386d7feb511ce68cd23472402ff8cdf7fc78f/types_pexpect-4.9.0.20250916-py3-none-any.whl", hash = "sha256:7fa43cb96042ac58bc74f7c28e5d85782be0ee01344149886849e9d90936fe8a", size = 17057, upload-time = "2025-09-16T02:49:24.546Z" },
+]
+
+[[package]]
+name = "types-psutil"
+version = "7.0.0.20251001"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/9e/91/b020f9100b196a1f247cd12575f68dcdad94f032c1e0c42987d7632142ce/types_psutil-7.0.0.20251001.tar.gz", hash = "sha256:60d696200ddae28677e7d88cdebd6e960294e85adefbaafe0f6e5d0e7b4c1963", size = 20469, upload-time = "2025-10-01T03:04:21.292Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c0/99/50f30e0b648e6f583165cb2e535b0256a02a03efa4868cb2f017ad25b3d8/types_psutil-7.0.0.20251001-py3-none-any.whl", hash = "sha256:adc31de8386d31c61bd4123112fd51e2c700c7502a001cad72a3d56ba6b463d1", size = 23164, upload-time = "2025-10-01T03:04:20.089Z" },
+]
+
+[[package]]
+name = "types-pygments"
+version = "2.19.0.20250809"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "types-docutils" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/51/1b/a6317763a8f2de01c425644273e5fbe3145d648a081f3bad590b3c34e000/types_pygments-2.19.0.20250809.tar.gz", hash = "sha256:01366fd93ef73c792e6ee16498d3abf7a184f1624b50b77f9506a47ed85974c2", size = 18454, upload-time = "2025-08-09T03:17:14.322Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8d/c4/d9f0923a941159664d664a0b714242fbbd745046db2d6c8de6fe1859c572/types_pygments-2.19.0.20250809-py3-none-any.whl", hash = "sha256:8e813e5fc25f741b81cadc1e181d402ebd288e34a9812862ddffee2f2b57db7c", size = 25407, upload-time = "2025-08-09T03:17:13.223Z" },
 ]
 
 [[package]]
