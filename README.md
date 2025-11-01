@@ -235,11 +235,6 @@ EMX-MCP Server is configured via **environment variables** set in your MCP clien
   - FAISS index configuration
   - Recommended configurations for different use cases
 
-- **[GRAFANA_CLOUD_SETUP.md](docs/GRAFANA_CLOUD_SETUP.md)** - Metrics and observability setup:
-  - Send OpenTelemetry metrics to Grafana Cloud for real-time dashboards
-  - Monitor embedding performance, search latency, memory usage
-  - Simple environment variable configuration (no containers required)
-
 ## 📝 How to Build
 
 To build and install the EMX-MCP Server, follow these steps:

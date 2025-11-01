@@ -26,8 +26,8 @@ EMX-MCP Server is configured via environment variables. When using with MCP clie
 ### Model Configuration
 
 #### `EMX_MODEL_NAME`
-**Default**: `all-MiniLM-L6-v2`  
-**Valid Values**: Any HuggingFace sentence-transformers model name  
+**Default**: `all-MiniLM-L6-v2`
+**Valid Values**: Any HuggingFace sentence-transformers model name
 **Description**: Embedding model for semantic encoding. Must match the vector dimension you configure.
 
 **Common Models**:
@@ -43,8 +43,8 @@ EMX-MCP Server is configured via environment variables. When using with MCP clie
 ---
 
 #### `EMX_MODEL_DEVICE`
-**Default**: `cpu`  
-**Valid Values**: `cpu`, `cuda`  
+**Default**: `cpu`
+**Valid Values**: `cpu`, `cuda`
 **Description**: Hardware device for model inference.
 
 **Guidelines**:
@@ -59,8 +59,8 @@ EMX-MCP Server is configured via environment variables. When using with MCP clie
 ---
 
 #### `EMX_MODEL_BATCH_SIZE`
-**Default**: `32`  
-**Valid Range**: `1` to `512`  
+**Default**: `32`
+**Valid Range**: `1` to `512`
 **Description**: Number of tokens processed per inference batch.
 
 **Tuning Guidelines**:
@@ -79,8 +79,8 @@ EMX-MCP Server is configured via environment variables. When using with MCP clie
 ### Memory Configuration
 
 #### `EMX_MEMORY_GAMMA`
-**Default**: `1.0`  
-**Valid Range**: `0.1` to `10.0`  
+**Default**: `1.0`
+**Valid Range**: `0.1` to `10.0`
 **Description**: Boundary detection sensitivity (threshold = mean + gamma × stddev).
 
 **Tuning Guidelines**:
@@ -96,8 +96,8 @@ EMX-MCP Server is configured via environment variables. When using with MCP clie
 ---
 
 #### `EMX_MEMORY_CONTEXT_WINDOW`
-**Default**: `10`  
-**Valid Range**: `1` to `100`  
+**Default**: `10`
+**Valid Range**: `1` to `100`
 **Description**: Number of preceding tokens used for contextual embedding.
 
 **Tuning Guidelines**:
@@ -113,8 +113,8 @@ EMX-MCP Server is configured via environment variables. When using with MCP clie
 ---
 
 #### `EMX_MEMORY_WINDOW_OFFSET`
-**Default**: `128`  
-**Valid Range**: `1` to `2048`  
+**Default**: `128`
+**Valid Range**: `1` to `2048`
 **Description**: Lookback window for surprise calculation (adaptive threshold).
 
 **Guidelines**:
@@ -129,8 +129,8 @@ EMX-MCP Server is configured via environment variables. When using with MCP clie
 ---
 
 #### `EMX_MEMORY_MIN_BLOCK_SIZE`
-**Default**: `8`  
-**Valid Range**: `1` to `1024`  
+**Default**: `8`
+**Valid Range**: `1` to `1024`
 **Description**: Minimum tokens per episode (prevents micro-segmentation).
 
 **Guidelines**:
@@ -146,9 +146,9 @@ EMX-MCP Server is configured via environment variables. When using with MCP clie
 ---
 
 #### `EMX_MEMORY_MAX_BLOCK_SIZE`
-**Default**: `128`  
-**Valid Range**: `1` to `4096`  
-**Must be**: ≥ `EMX_MEMORY_MIN_BLOCK_SIZE`  
+**Default**: `128`
+**Valid Range**: `1` to `4096`
+**Must be**: ≥ `EMX_MEMORY_MIN_BLOCK_SIZE`
 **Description**: Maximum tokens per episode (forces split for very long segments).
 
 **Guidelines**:
@@ -163,8 +163,8 @@ EMX-MCP Server is configured via environment variables. When using with MCP clie
 ---
 
 #### `EMX_MEMORY_N_INIT`
-**Default**: `128`  
-**Valid Range**: `1` to `10000`  
+**Default**: `128`
+**Valid Range**: `1` to `10000`
 **Description**: Tier 1 memory - initial tokens always kept (attention sinks).
 
 **Guidelines**:
@@ -179,9 +179,9 @@ EMX-MCP Server is configured via environment variables. When using with MCP clie
 ---
 
 #### `EMX_MEMORY_N_LOCAL`
-**Default**: `4096`  
-**Valid Range**: `1` to `100000`  
-**Must be**: ≥ `EMX_MEMORY_N_MEM`  
+**Default**: `4096`
+**Valid Range**: `1` to `100000`
+**Must be**: ≥ `EMX_MEMORY_N_MEM`
 **Description**: Tier 2 memory - recent tokens in rolling window.
 
 **Guidelines**:
@@ -197,9 +197,9 @@ EMX-MCP Server is configured via environment variables. When using with MCP clie
 ---
 
 #### `EMX_MEMORY_N_MEM`
-**Default**: `2048`  
-**Valid Range**: `1` to `100000`  
-**Must be**: ≤ `EMX_MEMORY_N_LOCAL`  
+**Default**: `2048`
+**Valid Range**: `1` to `100000`
+**Must be**: ≤ `EMX_MEMORY_N_LOCAL`
 **Description**: Tier 3 memory - episodic memories indexed by FAISS.
 
 **Guidelines**:
@@ -214,8 +214,8 @@ EMX-MCP Server is configured via environment variables. When using with MCP clie
 ---
 
 #### `EMX_MEMORY_REPR_TOPK`
-**Default**: `4`  
-**Valid Range**: `1` to `50`  
+**Default**: `4`
+**Valid Range**: `1` to `50`
 **Description**: Number of representative tokens per episode for indexing.
 
 **Guidelines**:
@@ -230,8 +230,8 @@ EMX-MCP Server is configured via environment variables. When using with MCP clie
 ---
 
 #### `EMX_MEMORY_REFINEMENT_METRIC`
-**Default**: `modularity`  
-**Valid Values**: `modularity`, `conductance`, `coverage`  
+**Default**: `modularity`
+**Valid Values**: `modularity`, `conductance`, `coverage`
 **Description**: Graph-based metric for boundary refinement.
 
 **Guidelines**:
@@ -249,8 +249,8 @@ EMX-MCP Server is configured via environment variables. When using with MCP clie
 ### Storage Configuration
 
 #### `EMX_STORAGE_VECTOR_DIM`
-**Default**: Auto-detected from `EMX_MODEL_NAME` (recommended)  
-**Valid Range**: `1` to `4096`  
+**Default**: Auto-detected from `EMX_MODEL_NAME` (recommended)
+**Valid Range**: `1` to `4096`
 **Description**: Embedding vector dimension. Auto-detected from the model by default; only set manually if you need to override.
 
 **Auto-Detection (Recommended)**:
@@ -284,8 +284,8 @@ EMX-MCP Server is configured via environment variables. When using with MCP clie
 ---
 
 #### `EMX_STORAGE_NPROBE`
-**Default**: `8`  
-**Valid Range**: `1` to `1024`  
+**Default**: `8`
+**Valid Range**: `1` to `1024`
 **Description**: FAISS IVF clusters to search (higher = better recall, slower).
 
 **Tuning Guidelines**:
@@ -302,8 +302,8 @@ EMX-MCP Server is configured via environment variables. When using with MCP clie
 ---
 
 #### `EMX_STORAGE_DISK_OFFLOAD_THRESHOLD`
-**Default**: `300000`  
-**Valid Range**: `1` to `10000000`  
+**Default**: `300000`
+**Valid Range**: `1` to `10000000`
 **Description**: Number of vectors before switching from memory to disk-backed index.
 
 **Guidelines**:
@@ -319,8 +319,8 @@ EMX-MCP Server is configured via environment variables. When using with MCP clie
 ---
 
 #### `EMX_STORAGE_MIN_TRAINING_SIZE`
-**Default**: `1000`  
-**Valid Range**: `100` to `1000000`  
+**Default**: `1000`
+**Valid Range**: `100` to `1000000`
 **Description**: Minimum vectors before training IVF index (uses Flat index below this).
 
 **Guidelines**:
@@ -335,8 +335,8 @@ EMX-MCP Server is configured via environment variables. When using with MCP clie
 ---
 
 #### `EMX_STORAGE_INDEX_TYPE`
-**Default**: `IVF`  
-**Valid Values**: `IVF`, `Flat`, `HNSW`  
+**Default**: `IVF`
+**Valid Values**: `IVF`, `Flat`, `HNSW`
 **Description**: FAISS index type (IVF = inverted file, Flat = exact, HNSW = graph-based).
 
 **Guidelines**:
@@ -352,8 +352,8 @@ EMX-MCP Server is configured via environment variables. When using with MCP clie
 ---
 
 #### `EMX_STORAGE_METRIC`
-**Default**: `cosine`  
-**Valid Values**: `cosine`, `euclidean`, `dot`  
+**Default**: `cosine`
+**Valid Values**: `cosine`, `euclidean`, `dot`
 **Description**: Distance metric for vector similarity.
 
 **Guidelines**:
@@ -369,8 +369,8 @@ EMX-MCP Server is configured via environment variables. When using with MCP clie
 ---
 
 #### `EMX_STORAGE_AUTO_RETRAIN`
-**Default**: `true`  
-**Valid Values**: `true`, `false`  
+**Default**: `true`
+**Valid Values**: `true`, `false`
 **Description**: Enable automatic IVF index retraining when nlist drift is detected.
 
 **Guidelines**:
@@ -392,8 +392,8 @@ EMX-MCP Server is configured via environment variables. When using with MCP clie
 ---
 
 #### `EMX_STORAGE_NLIST_DRIFT_THRESHOLD`
-**Default**: `2.0`  
-**Valid Range**: `1.1` to `10.0`  
+**Default**: `2.0`
+**Valid Range**: `1.1` to `10.0`
 **Description**: Ratio threshold for triggering automatic index retraining.
 
 **Tuning Guidelines**:
@@ -423,8 +423,8 @@ EMX-MCP Server is configured via environment variables. When using with MCP clie
 ### GPU Optimization Configuration
 
 #### `EMX_GPU_ENABLE_PINNED_MEMORY`
-**Default**: `true`  
-**Valid Values**: `true`, `false`  
+**Default**: `true`
+**Valid Values**: `true`, `false`
 **Description**: Enable pinned memory pool for async CPU→GPU transfers.
 
 **Guidelines**:
@@ -441,8 +441,8 @@ EMX-MCP Server is configured via environment variables. When using with MCP clie
 ---
 
 #### `EMX_GPU_PINNED_BUFFER_SIZE`
-**Default**: `4`  
-**Valid Range**: `1` to `32`  
+**Default**: `4`
+**Valid Range**: `1` to `32`
 **Description**: Number of reusable pinned memory buffers in pool.
 
 **Tuning Guidelines**:
@@ -460,8 +460,8 @@ EMX-MCP Server is configured via environment variables. When using with MCP clie
 ---
 
 #### `EMX_GPU_PINNED_MAX_BATCH`
-**Default**: `128`  
-**Valid Range**: `32` to `512`  
+**Default**: `128`
+**Valid Range**: `32` to `512`
 **Description**: Maximum batch size per pinned buffer.
 
 **Tuning Guidelines**:
@@ -477,8 +477,8 @@ EMX-MCP Server is configured via environment variables. When using with MCP clie
 ---
 
 #### `EMX_GPU_PINNED_MIN_BATCH_THRESHOLD`
-**Default**: `32`  
-**Valid Range**: `1` to `256`  
+**Default**: `32`
+**Valid Range**: `1` to `256`
 **Description**: Minimum batch size to use pinned memory (falls back to regular tensors below this).
 
 **Tuning Guidelines**:
@@ -493,137 +493,11 @@ EMX-MCP Server is configured via environment variables. When using with MCP clie
 
 ---
 
-### Metrics Configuration (OpenTelemetry)
-
-#### `OTEL_SERVICE_NAME`
-**Default**: `emx-mcp-server`  
-**Valid Values**: Any string  
-**Description**: Service name reported in metrics and traces.
-
-**Guidelines**:
-- Used to identify the service in observability backends
-- Keep it consistent across environments for easier tracking
-
-**Example**:
-```json
-"OTEL_SERVICE_NAME": "emx-memory-production"
-```
-
----
-
-#### `OTEL_ENVIRONMENT`
-**Default**: `development`  
-**Valid Values**: Any string (common: `development`, `staging`, `production`)  
-**Description**: Environment label for metrics filtering and dashboard segmentation.
-
-**Guidelines**:
-- Helps distinguish metrics from different deployment environments
-- Use consistent naming across your infrastructure
-
-**Example**:
-```json
-"OTEL_ENVIRONMENT": "production"
-```
-
----
-
-#### `OTEL_EXPORTER_OTLP_ENDPOINT`
-**Default**: Disabled (console export only)  
-**Valid Values**: HTTP/HTTPS URL (e.g., `http://localhost:4318/v1/metrics`)  
-**Description**: OTLP metrics endpoint for remote observability backends.
-
-**Guidelines**:
-- **If not set**: Metrics export to console only (lightweight, no external dependencies)
-- **If set**: Metrics export to both console AND OTLP endpoint (requires OpenTelemetry Collector or compatible backend)
-- Common endpoints:
-  - **Grafana Cloud**: `https://otlp-gateway-<region>.grafana.net/otlp/v1/metrics`
-  - **Honeycomb**: `https://api.honeycomb.io:443/v1/metrics`
-  - **Local Collector**: `http://localhost:4318/v1/metrics`
-
-**OTLP Collector Setup** (optional):
-```bash
-# Install OpenTelemetry Collector
-docker run -d -p 4318:4318 otel/opentelemetry-collector:latest
-
-# Or use Grafana Agent / Datadog Agent / Honeycomb's native OTLP endpoints
-```
-
-**Example (local collector)**:
-```json
-"OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318/v1/metrics"
-```
-
-**Example (Grafana Cloud)**:
-```json
-"OTEL_EXPORTER_OTLP_ENDPOINT": "https://otlp-gateway-prod-us-east-0.grafana.net/otlp/v1/metrics"
-```
-
----
-
-#### `OTEL_METRIC_EXPORT_INTERVAL`
-**Default**: `10000` (10 seconds)  
-**Valid Range**: `1000` to `300000` (1 second to 5 minutes)  
-**Description**: Interval (in milliseconds) between metric exports.
-
-**Tuning Guidelines**:
-- **Low latency (1-5s)**: Real-time dashboards, fast anomaly detection
-- **Balanced (10-30s)**: Production default (good signal without backend overload)
-- **High efficiency (60-300s)**: Reduce backend costs, suitable for batch workloads
-
-**Example (30-second exports)**:
-```json
-"OTEL_METRIC_EXPORT_INTERVAL": "30000"
-```
-
----
-
-#### `OTEL_METRICS_CONSOLE`
-**Default**: `false`  
-**Valid Values**: `true`, `false`  
-**Description**: Enable console metrics exporter (writes to stderr).
-
-**⚠️ IMPORTANT - STDIO Transport Constraint**:
-MCP servers use STDIO transport (stdin/stdout for JSON-RPC protocol communication). Any output to stdout corrupts the protocol stream, causing client connection failures.
-
-**Guidelines**:
-- **Production MCP servers**: Keep `false` and use OTLP exporter (`OTEL_EXPORTER_OTLP_ENDPOINT`)
-- **Development/debugging**: Set to `true` to see metrics in stderr
-- Console output goes to **stderr** (not stdout) to avoid interfering with MCP protocol
-- Only useful for local debugging; production should rely on OTLP backends
-
-**How to Monitor Console Metrics**:
-```bash
-# Redirect stderr to file while server runs
-uvx emx-mcp-server 2> metrics.log
-
-# Monitor metrics in real-time
-uvx emx-mcp-server 2>&1 | grep -A 50 "resource_metrics"
-
-# Or filter stderr in your MCP client logs
-```
-
-**Recommended Setup**:
-```json
-{
-  "env": {
-    "OTEL_METRICS_CONSOLE": "false",
-    "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318/v1/metrics"
-  }
-}
-```
-
-**Example (development with console metrics)**:
-```json
-"OTEL_METRICS_CONSOLE": "true"
-```
-
----
-
 ### Logging Configuration
 
 #### `EMX_LOGGING_LEVEL`
-**Default**: `INFO`  
-**Valid Values**: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`  
+**Default**: `INFO`
+**Valid Values**: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`
 **Description**: Minimum log level to emit.
 
 **Guidelines**:
@@ -639,8 +513,8 @@ uvx emx-mcp-server 2>&1 | grep -A 50 "resource_metrics"
 ---
 
 #### `EMX_LOGGING_FORMAT`
-**Default**: `%(asctime)s - %(name)s - %(levelname)s - %(message)s`  
-**Valid Values**: Any Python logging format string  
+**Default**: `%(asctime)s - %(name)s - %(levelname)s - %(message)s`
+**Valid Values**: Any Python logging format string
 **Description**: Log message format template.
 
 **Example**:
@@ -653,8 +527,8 @@ uvx emx-mcp-server 2>&1 | grep -A 50 "resource_metrics"
 ### Runtime Paths
 
 #### `EMX_PROJECT_PATH`
-**Default**: Current working directory  
-**Valid Values**: Any valid filesystem path  
+**Default**: Current working directory
+**Valid Values**: Any valid filesystem path
 **Description**: Override automatic project detection (uses git root or cwd by default).
 
 **Use Cases**:
@@ -670,8 +544,8 @@ uvx emx-mcp-server 2>&1 | grep -A 50 "resource_metrics"
 ---
 
 #### `EMX_GLOBAL_PATH`
-**Default**: `~/.emx-mcp/global_memories`  
-**Valid Values**: Any valid filesystem path  
+**Default**: `~/.emx-mcp/global_memories`
+**Valid Values**: Any valid filesystem path
 **Description**: Global memory storage location (shared across all projects).
 
 **Use Cases**:
@@ -770,17 +644,17 @@ Optimized for millions of vectors with adaptive index management:
 
 ## ❓ Troubleshooting
 
-**Q: Changes in `env: {}` aren't taking effect**  
+**Q: Changes in `env: {}` aren't taking effect**
 A: Restart your MCP client completely (not just reload server)
 
-**Q: Getting "Model not found" errors**  
+**Q: Getting "Model not found" errors**
 A: First run downloads the model from HuggingFace. Check internet connection.
 
-**Q: Out of memory errors**  
+**Q: Out of memory errors**
 A: Reduce `EMX_MODEL_BATCH_SIZE` or `EMX_MEMORY_N_LOCAL`
 
-**Q: Too many/few boundaries detected**  
+**Q: Too many/few boundaries detected**
 A: Adjust `EMX_MEMORY_GAMMA` (higher = fewer boundaries, lower = more boundaries)
 
-**Q: Vector dimension mismatch errors**  
+**Q: Vector dimension mismatch errors**
 A: Remove `EMX_STORAGE_VECTOR_DIM` from your config to enable auto-detection (recommended). Only set manually for advanced use cases.

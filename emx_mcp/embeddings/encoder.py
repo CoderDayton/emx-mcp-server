@@ -14,23 +14,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Lazy-loaded metrics instruments
-_instruments = None
-
-
-def _get_instruments():
-    """Lazy-load metrics instruments to avoid circular imports."""
-    global _instruments
-    if _instruments is None:
-        try:
-            from emx_mcp.metrics.instruments import get_instruments
-
-            _instruments = get_instruments()
-        except (ImportError, RuntimeError):
-            # Metrics not initialized or unavailable
-            _instruments = False
-    return _instruments if _instruments is not False else None
-
 
 class EmbeddingEncoder:
     """

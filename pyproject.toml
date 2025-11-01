@@ -37,9 +37,6 @@ dependencies = [
   "torchaudio>=2.9.0",
   "torchvision>=0.24.0",
   "faiss-gpu-cu12>=1.12.0",
-  "opentelemetry-api>=1.20.0",
-  "opentelemetry-sdk>=1.20.0",
-  "opentelemetry-exporter-otlp-proto-http>=1.20.0",
 ]
 
 [dependency-groups]

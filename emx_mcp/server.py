@@ -8,7 +8,6 @@ from fastmcp import FastMCP
 from emx_mcp.memory.project_manager import ProjectMemoryManager
 from emx_mcp.utils.config import load_config
 from emx_mcp.utils.logging import setup_logging
-from emx_mcp.metrics import setup_metrics, get_health_tracker
 
 mcp = FastMCP("EMX Memory MCP Server", version="1.0.0")
 
@@ -20,17 +19,6 @@ logger = setup_logging(config)
 if config.get("storage", {}).get("expected_total_tokens"):
     expected = config["storage"]["expected_total_tokens"]
     logger.info(f"Using expected token count: {expected} for optimal nlist")
-
-# Initialize OpenTelemetry metrics
-try:
-    setup_metrics(config)
-    otlp_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
-    if otlp_endpoint:
-        logger.info(f"Metrics initialized: console + OTLP ({otlp_endpoint})")
-    else:
-        logger.info("Metrics initialized: console exporter only")
-except Exception as e:
-    logger.warning(f"Failed to initialize metrics: {e}")
 
 # Detect project path from config (already validated)
 project_path = config.get("project_path", os.getcwd())
@@ -104,64 +92,6 @@ def get_memory_status() -> dict:
             )
         ),
     }
-
-
-@mcp.resource("metrics://health")
-def get_metrics_health() -> dict:
-    """
-    Get OpenTelemetry metrics export health status.
-
-    Returns:
-        - Last successful export timestamp
-        - Total exports and failures
-        - Success rate
-        - Configured exporters (console, OTLP)
-        - Last error if any
-
-    Use this to verify metrics are flowing to Grafana Cloud or other
-    observability backends. If exports are failing, check OTLP endpoint
-    configuration and network connectivity.
-    """
-    tracker = get_health_tracker()
-
-    if tracker is None:
-        return {
-            "status": "not_initialized",
-            "message": "Metrics system not initialized. Check startup logs for errors.",
-        }
-
-    health = tracker.get_health()
-
-    return {
-        "status": "healthy" if health["healthy"] else "degraded",
-        "exporters": health["exporters"],
-        "last_success": health["last_success"],
-        "last_failure": health["last_failure"],
-        "stats": health["stats"],
-    }
-
-
-@mcp.resource("memory://metrics")
-def get_performance_metrics() -> dict:
-    """
-    Get real-time indexing performance metrics for production monitoring.
-
-    Returns:
-        - embedding: Model config, device, batch size, throughput reference
-        - indexing: Vector counts, training status, IVF parameters, GPU status
-        - memory: Index size, metadata size, bytes per vector, total footprint
-        - storage_path: On-disk storage location
-
-    Use this to monitor:
-    - Memory consumption trends (identify bloat before OOM)
-    - Indexing health (training status, nlist drift for retraining decisions)
-    - GPU utilization (verify GPU acceleration is active)
-
-    For detailed latency percentiles (p50/p95/p99), query OTel histograms:
-    - emx.embedding.duration (embedding throughput analysis)
-    - emx.vector_search.duration (IVF search performance)
-    """
-    return manager.get_performance_metrics()
 
 
 @mcp.tool()
