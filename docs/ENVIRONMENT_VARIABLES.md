@@ -21,6 +21,26 @@ EMX-MCP Server is configured via environment variables. When using with MCP clie
 
 ---
 
+## ❓ Troubleshooting
+
+**Q: Changes in `env: {}` aren't taking effect**
+A: Restart your MCP client completely (not just reload server)
+
+**Q: Getting "Model not found" errors**
+A: First run downloads the model from HuggingFace. Check internet connection.
+
+**Q: Out of memory errors**
+A: Reduce `EMX_MODEL_BATCH_SIZE` or `EMX_MEMORY_N_LOCAL`
+
+**Q: Too many/few boundaries detected**
+A: Adjust `EMX_MEMORY_GAMMA` (higher = fewer boundaries, lower = more boundaries)
+
+**Q: Vector dimension mismatch errors**
+A: Remove `EMX_STORAGE_VECTOR_DIM` from your config to enable auto-detection (recommended). Only set manually for advanced use cases.
+
+
+---
+
 ## 📋 Complete Variable Reference
 
 ### Model Configuration
@@ -229,19 +249,63 @@ EMX-MCP Server is configured via environment variables. When using with MCP clie
 
 ---
 
-#### `EMX_MEMORY_REFINEMENT_METRIC`
-**Default**: `modularity`
-**Valid Values**: `modularity`, `conductance`, `coverage`
-**Description**: Graph-based metric for boundary refinement.
+#### `EMX_SEGMENTATION_ENABLE_REFINEMENT`
+**Default**: `true`
+**Valid Values**: `true`, `false`
+**Description**: Enable graph-theoretic boundary refinement (Algorithm 1 from EM-LLM paper).
 
 **Guidelines**:
-- `modularity`: Best all-around (finds natural clusters)
-- `conductance`: Good for overlapping topics
-- `coverage`: Maximizes intra-segment similarity
+- `true`: Apply O(nm) refinement for 10-29% accuracy improvement (recommended)
+- `false`: Use O(n) surprise-only segmentation (faster but less accurate)
+- Refinement optimizes boundaries using adjacency matrix of token embeddings
+- Performance controlled by `EMX_SEGMENTATION_MAX_REFINEMENT_WINDOW`
 
 **Example**:
 ```json
-"EMX_MEMORY_REFINEMENT_METRIC": "conductance"
+"EMX_SEGMENTATION_ENABLE_REFINEMENT": "true"
+```
+
+---
+
+#### `EMX_SEGMENTATION_REFINEMENT_METRIC`
+**Default**: `modularity`
+**Valid Values**: `modularity`, `conductance`
+**Description**: Graph-based metric for boundary refinement optimization.
+
+**Guidelines**:
+- `modularity`: Maximizes community structure Q = (1/4m) Σ [A_ij - (k_i k_j)/(2m)] δ(c_i, c_j) (best all-around)
+- `conductance`: Minimizes cut ratio φ(S) = cut(S, V\S) / min(vol(S), vol(V\S)) (good for overlapping topics)
+- Both metrics use cosine similarity adjacency from token embeddings
+- See EM-LLM paper Section 3.2 for mathematical details
+
+**Example**:
+```json
+"EMX_SEGMENTATION_REFINEMENT_METRIC": "modularity"
+```
+
+---
+
+#### `EMX_SEGMENTATION_MAX_REFINEMENT_WINDOW`
+**Default**: `512`
+**Valid Range**: `64` to `4096`
+**Description**: Maximum tokens per segment for refinement (prevents O(n²) complexity explosion).
+
+**Tuning Guidelines**:
+- Refinement is O(nm) where m = segment size (capped at this value)
+- **Conservative (256-512)**: Fast refinement, handles typical segments well
+- **Aggressive (1024-2048)**: Better quality for long segments but slower
+- Segments larger than this threshold skip refinement
+- 512 tokens ≈ 3-4 paragraphs, covers 95% of natural segments
+
+**Performance Impact**:
+- 256 window: ~5ms per segment
+- 512 window: ~20ms per segment
+- 1024 window: ~80ms per segment
+- Batched across segments for amortized cost
+
+**Example**:
+```json
+"EMX_SEGMENTATION_MAX_REFINEMENT_WINDOW": "512"
 ```
 
 ---
@@ -284,19 +348,66 @@ EMX-MCP Server is configured via environment variables. When using with MCP clie
 ---
 
 #### `EMX_STORAGE_NPROBE`
-**Default**: `8`
+**Default**: `16`
 **Valid Range**: `1` to `1024`
 **Description**: FAISS IVF clusters to search (higher = better recall, slower).
 
 **Tuning Guidelines**:
 - **Fast search (latency-critical)**: 4-8
-- **Balanced**: 16-32
+- **Balanced (recommended)**: 16-32 (optimal for SQ8 quantization)
 - **Exhaustive (quality-critical)**: 64-128
+- Default increased to 16 for better recall with scalar quantization
 - Only matters after index training (>1000 vectors)
 
 **Example**:
 ```json
 "EMX_STORAGE_NPROBE": "16"
+```
+
+---
+
+#### `EMX_STORAGE_USE_SQ`
+**Default**: `true`
+**Valid Values**: `true`, `false`
+**Description**: Enable 8-bit Scalar Quantization (SQ8) for 4x memory compression.
+
+**Guidelines**:
+- `true`: Use SQ8 quantization (4x smaller index, minimal accuracy loss <2%)
+- `false`: Use full float32 vectors (4x more memory but maximum precision)
+- SQ8 converts float32 vectors to uint8 with per-dimension min/max scaling
+- Recommended for production (dramatically reduces memory without quality loss)
+- Requires `EMX_STORAGE_NPROBE >= 16` for optimal recall
+
+**Memory Impact Example**:
+- 1M vectors × 384 dim: 1.5GB float32 → 375MB SQ8 (75% savings)
+- 10M vectors × 768 dim: 30GB float32 → 7.5GB SQ8 (75% savings)
+
+**Example**:
+```json
+"EMX_STORAGE_USE_SQ": "true"
+```
+
+---
+
+#### `EMX_STORAGE_EXPECTED_TOKENS`
+**Default**: `null` (auto-scale based on actual data)
+**Valid Range**: `1000` to `100000000`
+**Description**: Expected total tokens for optimal FAISS nlist pre-calculation.
+
+**Guidelines**:
+- If set, calculates optimal nlist as `4 * sqrt(expected_vectors)` at initialization
+- If unset, nlist adapts dynamically as data grows (recommended for most cases)
+- Use when you know corpus size upfront for optimal index structure from start
+- Prevents suboptimal nlist during initial growth phase
+- Expected vectors ≈ `expected_tokens * 0.9` (90% encoding efficiency)
+
+**Calculation Example**:
+- 60k tokens → ~54k vectors → optimal nlist = 929
+- 1M tokens → ~900k vectors → optimal nlist = 3795
+
+**Example**:
+```json
+"EMX_STORAGE_EXPECTED_TOKENS": "60000"
 ```
 
 ---
@@ -380,9 +491,10 @@ EMX-MCP Server is configured via environment variables. When using with MCP clie
 - Each optimization event is logged to `.emx_optimization_history.json`
 
 **How It Works**:
-- System calculates optimal nlist as `sqrt(n_vectors)` bounded by `[128, n_vectors/39]`
+- System calculates optimal nlist as `4 * sqrt(n_vectors)` bounded by `[128, n_vectors/39]`
 - Compares current nlist to optimal: if `ratio > threshold`, retrain index
-- Typical progression: 1k vectors → nlist=32, 10k → nlist=100, 1M → nlist=1000
+- Typical progression: 1k vectors → nlist=128, 10k → nlist=400, 100k → nlist=1265
+- Formula changed from `sqrt(n)` to `4*sqrt(n)` for better IVF partitioning with SQ8
 
 **Example**:
 ```json
@@ -416,6 +528,55 @@ EMX-MCP Server is configured via environment variables. When using with MCP clie
 **Example (conservative, minimize retraining)**:
 ```json
 "EMX_STORAGE_NLIST_DRIFT_THRESHOLD": "5.0"
+```
+
+---
+
+### Batch Encoding Configuration
+
+#### `EMX_MEMORY_BATCH_EVENT_THRESHOLD`
+**Default**: `10`
+**Valid Range**: `1` to `100`
+**Description**: Number of events to buffer before flushing to storage (batch write optimization).
+
+**Tuning Guidelines**:
+- **Low latency (1-5)**: Events written immediately, minimal buffering (good for real-time apps)
+- **Balanced (10-20)**: Amortizes write costs while keeping latency reasonable (recommended)
+- **High throughput (50-100)**: Maximum write efficiency for bulk ingestion
+- Lower threshold = more frequent writes = lower memory but more I/O
+- Higher threshold = fewer writes = better throughput but more memory
+
+**Performance Impact**:
+- Threshold=1: ~100 events/sec (one write per event)
+- Threshold=10: ~400 events/sec (batched writes)
+- Threshold=50: ~600 events/sec (optimal for bulk loads)
+
+**Example**:
+```json
+"EMX_MEMORY_BATCH_EVENT_THRESHOLD": "10"
+```
+
+---
+
+#### `EMX_MEMORY_BATCH_ENCODING_THRESHOLD`
+**Default**: `50`
+**Valid Range**: `1` to `10000`
+**Description**: Minimum tokens required to use batch encoding (falls back to per-token encoding below this).
+
+**Tuning Guidelines**:
+- Batch encoding has ~50ms fixed overhead that only pays off for larger inputs
+- **Small conversations (<50 tokens)**: Per-token encoding is faster
+- **Medium conversations (50-500 tokens)**: Crossover point, batch encoding starts winning
+- **Large conversations (>500 tokens)**: Batch encoding provides 1.4x speedup
+- Lower if you have very efficient batch processing, higher for CPU-bound systems
+
+**Performance Example (60k tokens)**:
+- Per-token: 187.43s (320 tokens/sec)
+- Batch (threshold=50): 138.79s (433 tokens/sec) - 1.35x faster
+
+**Example**:
+```json
+"EMX_MEMORY_BATCH_ENCODING_THRESHOLD": "50"
 ```
 
 ---
@@ -598,22 +759,25 @@ Fast, low-memory, good for most conversations:
 ```
 
 ### High Quality
-Better boundary detection, more context:
+Better boundary detection with refinement, more context:
 ```json
 "env": {
   "EMX_MEMORY_GAMMA": "1.5",
   "EMX_MEMORY_CONTEXT_WINDOW": "20",
-  "EMX_MEMORY_N_LOCAL": "8192"
+  "EMX_MEMORY_N_LOCAL": "8192",
+  "EMX_SEGMENTATION_ENABLE_REFINEMENT": "true",
+  "EMX_SEGMENTATION_REFINEMENT_METRIC": "modularity"
 }
 ```
 
 ### GPU Accelerated
-For large-scale workloads:
+For large-scale workloads with SQ8 compression:
 ```json
 "env": {
   "EMX_MODEL_DEVICE": "cuda",
   "EMX_MODEL_BATCH_SIZE": "128",
-  "EMX_STORAGE_NPROBE": "32",
+  "EMX_STORAGE_NPROBE": "16",
+  "EMX_STORAGE_USE_SQ": "true",
   "EMX_GPU_ENABLE_PINNED_MEMORY": "true",
   "EMX_GPU_PINNED_BUFFER_SIZE": "8"
 }
@@ -628,33 +792,19 @@ Support for non-English text:
 ```
 
 ### Large-Scale Production
-Optimized for millions of vectors with adaptive index management:
+Optimized for millions of vectors with adaptive index management, SQ8 compression, and batch optimization:
 ```json
 "env": {
   "EMX_MODEL_DEVICE": "cuda",
   "EMX_MODEL_BATCH_SIZE": "128",
-  "EMX_STORAGE_NPROBE": "32",
+  "EMX_STORAGE_NPROBE": "16",
+  "EMX_STORAGE_USE_SQ": "true",
   "EMX_STORAGE_AUTO_RETRAIN": "true",
   "EMX_STORAGE_NLIST_DRIFT_THRESHOLD": "1.5",
-  "EMX_STORAGE_DISK_OFFLOAD_THRESHOLD": "500000"
+  "EMX_STORAGE_DISK_OFFLOAD_THRESHOLD": "500000",
+  "EMX_STORAGE_EXPECTED_TOKENS": "1000000",
+  "EMX_MEMORY_BATCH_EVENT_THRESHOLD": "20",
+  "EMX_MEMORY_BATCH_ENCODING_THRESHOLD": "50",
+  "EMX_SEGMENTATION_ENABLE_REFINEMENT": "true"
 }
 ```
-
----
-
-## ❓ Troubleshooting
-
-**Q: Changes in `env: {}` aren't taking effect**
-A: Restart your MCP client completely (not just reload server)
-
-**Q: Getting "Model not found" errors**
-A: First run downloads the model from HuggingFace. Check internet connection.
-
-**Q: Out of memory errors**
-A: Reduce `EMX_MODEL_BATCH_SIZE` or `EMX_MEMORY_N_LOCAL`
-
-**Q: Too many/few boundaries detected**
-A: Adjust `EMX_MEMORY_GAMMA` (higher = fewer boundaries, lower = more boundaries)
-
-**Q: Vector dimension mismatch errors**
-A: Remove `EMX_STORAGE_VECTOR_DIM` from your config to enable auto-detection (recommended). Only set manually for advanced use cases.

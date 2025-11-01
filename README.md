@@ -40,22 +40,25 @@ This approach ensures high performance, scalability, and seamless integration wi
 ### Version 1.0.0 (Latest)
 
 🚀 **Major Release: Workflow-Oriented MCP Tools**
-- **Consolidated Tool API**: Reduced from 11 low-level tools to 5 high-level workflow tools following [MCP best practices](https://modelcontextprotocol.io/)
+- **Modular Tool Architecture**: Tools organized into dedicated modules in `emx_mcp/tools/` for maintainability
+- **Refined Tool API**: 6 focused workflow tools (`store_memory`, `recall_memories`, `remove_memories`, `manage_memory`, `transfer_memory`, `search_memory_batch`)
 - **Token-Efficient Responses**: Added `format` parameter (concise vs detailed) - 72% token reduction for concise mode
-- **Natural Language Interface**: Tools designed around agent workflows (remember → recall) rather than system primitives
-- **Single Resource**: Consolidated 3 resources into unified `memory://status` for system health
+- **Natural Language Interface**: Tools designed around agent workflows (store → recall → remove) rather than system primitives
+- **Single Resource**: Consolidated `memory://status` for unified system health monitoring
 
-🧠 **Embedding-Based Architecture**
+🧠 **Embedding-Based Architecture with Boundary Refinement**
 - **Complete Embedding-Based Implementation**: Replaced LLM-dependent operations with embedding-based approaches for maximum compatibility
+- **Graph-Theoretic Boundary Refinement**: Implements Algorithm 1 from EM-LLM paper with modularity/conductance optimization (10-29% accuracy boost)
 - **Enhanced Surprise Calculation**: Uses semantic distances from local context centroids for boundary detection
-- **Improved Attention Approximation**: Embedding cosine similarity replaces attention keys for boundary refinement
-- **Optimized Performance**: 100x faster than previous LLM-based approach while maintaining semantic accuracy
+- **O(nm) Complexity Control**: Chunked refinement with configurable `max_refinement_window` prevents performance degradation
+- **Optimized Performance**: 433 tokens/sec throughput on 60k token corpus while maintaining semantic accuracy
 
 🔧 **New Features**
 - **Adaptive GPU Routing**: Batch search automatically routes CPU (<100 queries) vs GPU (all batches) for optimal performance
+- **Selective Memory Deletion**: New `remove_memories` tool for granular memory management without clearing everything
 - **Response Format Control**: All retrieval tools support concise (IDs + snippets) and detailed (full events) modes
 - **Context Window Support**: Configurable context windows for embedding-based surprise calculation
-- **Comprehensive Test Suite**: 110/111 tests passing (99.1% success rate) with pytest-asyncio validation
+- **Comprehensive Test Suite**: 112/115 tests passing (97.4% success rate) with boundary refinement validation
 
 > **Migration Note**: This is a **breaking change** for direct tool usage. Legacy tools replaced with consolidated workflow tools. See tool documentation for new API.
 
@@ -71,37 +74,48 @@ AI Agent (Copilot/Claude/Cursor)
    EMX-MCP Server
         ├─ EmbeddingEncoder (sentence-transformers)
         │   └─ encode_tokens_with_context()
-        ├─ SurpriseSegmenter
+        ├─ SurpriseSegmenter (O(n) + O(nm) refinement)
         │   ├─ _compute_embedding_surprises()
-        │   └─ _compute_embedding_adjacency()
+        │   ├─ _compute_embedding_adjacency()
+        │   └─ _refine_boundaries() [modularity/conductance]
         ├─ ProjectMemoryManager
         │   └─ HierarchicalMemoryStore
-        │       ├─ FAISS IVF Vector Store
-        │       ├─ SQLite Graph Store
+        │       ├─ FAISS IVF Vector Store (SQ8 compression)
+        │       ├─ SQLite Graph Store (temporal links)
         │       └─ Memory-Mapped Disk Manager
-        └─ TwoStageRetrieval
-            ├─ Similarity Search
-            └─ Temporal Contiguity
+        └─ CachedBatchRetrieval (LRU cache)
+            ├─ Similarity Search (FAISS IVF)
+            └─ Temporal Contiguity (graph neighbors)
 ```
 
-### Core Algorithm: Embedding-Based Surprise
+### Core Algorithm: Embedding-Based Surprise + Boundary Refinement
 
-The system computes **semantic surprise** by measuring embedding distances from local context:
+The system implements Algorithm 1 from the EM-LLM paper using a two-phase approach:
 
+**Phase 1: Surprise-Based Segmentation** (O(n))
 1. **Token Encoding**: Each token is encoded with local context using sentence-transformers
 2. **Context Centroid**: Calculate centroid of previous tokens (configurable window size)
-3. **Distance Calculation**: Measure Euclidean distance from current embedding to context centroid
+3. **Distance Calculation**: Measure cosine distance from current embedding to context centroid
 4. **Adaptive Threshold**: Use μ + γσ from local window for boundary detection
 
+**Phase 2: Graph-Theoretic Refinement** (O(nm), where m << n)
+1. **Adjacency Matrix**: Compute cosine similarity between tokens in each segment
+2. **Modularity Optimization**: Find boundary position maximizing community structure (Equation 3)
+3. **Conductance Minimization**: Alternative metric for boundary quality (Equation 4)
+4. **Chunked Processing**: Segments limited to `max_refinement_window` (default: 512) for performance
+
 ```python
-# Simplified embedding-based surprise calculation
-def compute_surprise(token_embeddings, window=10):
-    for t in range(window, len(token_embeddings)):
-        context = token_embeddings[t-window:t]
-        context_centroid = np.mean(context, axis=0)
-        distance = np.linalg.norm(token_embeddings[t] - context_centroid)
-        surprise[t] = distance
-    return surprise
+# Simplified embedding-based surprise + refinement
+def segment_tokens(token_embeddings, gamma=1.0, enable_refinement=True):
+    # Phase 1: O(n) surprise-based boundaries
+    surprises = compute_embedding_surprises(token_embeddings)
+    boundaries = identify_boundaries(surprises, gamma)
+
+    # Phase 2: O(nm) graph-theoretic refinement (m=512 default)
+    if enable_refinement:
+        boundaries = refine_boundaries(token_embeddings, boundaries, metric="modularity")
+
+    return boundaries
 ```
 
 ### Memory Hierarchy
@@ -114,10 +128,12 @@ The system employs a three-tier memory architecture:
 
 ### Performance Characteristics
 
-- **Embedding Generation**: ~2s for 10,000 tokens (sentence-transformers)
-- **Boundary Detection**: Sub-second for sequences up to 100k tokens
-- **Memory Retrieval**: <500ms for similarity + contiguity search
-- **Storage Scale**: Tested up to 10M vectors with FAISS IVF indexing
+- **Embedding Generation**: ~2s for 10,000 tokens (sentence-transformers on GPU)
+- **Boundary Detection**: O(n) base + O(nm) refinement where m=512 (sub-second for 100k tokens)
+- **Refinement Impact**: 10-29% accuracy improvement on retrieval tasks (paper benchmarks)
+- **Memory Retrieval**: <500ms for similarity + contiguity search with LRU caching
+- **Storage Scale**: Tested up to 10M vectors with FAISS IVF+SQ8 indexing (4x compression)
+- **Batch Throughput**: 433 tokens/sec on 60k token corpus (GPU-accelerated)
 
 ## 🚀 How to Use
 
@@ -144,31 +160,32 @@ Most AI agents support MCP integration. Add the server configuration:
 Once integrated, your AI agent will have access to these high-level memory tools:
 
 #### 📝 Core Memory Operations
-- **`remember_context(content, metadata)`** - Store conversations/documents with automatic segmentation and embedding
+- **`store_memory(content, metadata, auto_segment, gamma)`** - Store conversations/documents with automatic segmentation and boundary refinement
 - **`recall_memories(query, scope, format, k)`** - Semantic search across project/global memory with concise or detailed results
+- **`remove_memories(event_ids, confirm)`** - Selectively delete specific memories by event IDs (requires confirm=True)
 - **`search_memory_batch(queries, k, format)`** - Advanced: High-throughput batch retrieval with adaptive CPU/GPU routing
 
 #### 🔧 System Management
-- **`manage_memory(action, options)`** - Administrative operations: stats, retrain, optimize, clear
-- **`transfer_memory(action, path, merge)`** - Import/export memory archives for backup or migration
+- **`manage_memory(action, options)`** - Administrative operations: stats, retrain, optimize, clear, estimate
+- **`transfer_memory(action, path, merge, expected_tokens)`** - Import/export memory archives with optimal nlist hints
 
 #### 📊 Resources
-- **`memory://status`** - Comprehensive memory system health and statistics
+- **`memory://status`** - Comprehensive memory system health with FAISS IVF nlist diagnostics
 
-> **Design Philosophy**: Tools are consolidated around **workflows** (remember → recall) rather than low-level primitives. All tools support **format control** (concise vs detailed) for token efficiency.
+> **Design Philosophy**: Tools are consolidated around **workflows** (store → recall → remove) rather than low-level primitives. All tools support **format control** (concise vs detailed) for token efficiency.
 
 ### Tool Usage Examples
 
 #### Store a Conversation
 ```python
 # AI agent calls this automatically when you ask to "remember this"
-remember_context(
+store_memory(
     content="Discussed React hooks optimization. useCallback prevents re-renders...",
     metadata={"topic": "react", "date": "2025-10-31"},
-    auto_segment=True,  # Automatically splits into semantic episodes
-    gamma=1.0
+    auto_segment=True,  # Automatically splits into semantic episodes with refinement
+    gamma=1.0  # Boundary sensitivity (higher = more segments)
 )
-# Returns: {"event_ids": ["event_1730368800"], "num_segments": 3, "index_status": "healthy"}
+# Returns: {"event_ids": ["event_1730368800"], "num_segments": 3, "index_status": "optimal"}
 ```
 
 #### Retrieve Relevant Context
@@ -181,6 +198,16 @@ recall_memories(
     k=10
 )
 # Returns: {"memories": [{"event_id": "...", "snippet": "useCallback prevents...", "relevance_score": 0.92}]}
+```
+
+#### Remove Outdated Memories
+```python
+# Delete specific memories when they're no longer relevant
+remove_memories(
+    event_ids=["event_1730368800", "event_1730368900"],
+    confirm=True  # Safety flag required for deletion
+)
+# Returns: {"removed_count": 2, "remaining_events": 1245, "index_health": {...}}
 ```
 
 #### Batch Analysis
@@ -196,15 +223,23 @@ search_memory_batch(
 
 #### System Maintenance
 ```python
-# Get memory statistics
+# Get memory statistics with FAISS nlist diagnostics
 manage_memory(action="stats")
-# Returns: {"project_events": 1247, "index_info": {"trained": true, "total_vectors": 15382}}
+# Returns: {"project_events": 1247, "index_info": {"nlist": 184, "optimal_nlist": 184, "nlist_ratio": 1.0}}
 
-# Optimize storage (prune old events)
-manage_memory(action="optimize", options={"prune_old_events": true})
+# Estimate optimal configuration for expected corpus size
+manage_memory(action="estimate", options={"expected_tokens": 60000})
+# Returns: {"expected_vectors": 54000, "optimal_nlist": 929, "recommendation": "Set EMX_EXPECTED_TOKENS=60000"}
 
-# Backup memory
-transfer_memory(action="export", path="/backups/memory-2025-10-31.tar.gz")
+# Optimize storage (prune least-accessed events)
+manage_memory(action="optimize", options={"prune_old_events": True})
+
+# Backup memory with optimal nlist hint
+transfer_memory(
+    action="export",
+    path="/backups/memory-2025-10-31.tar.gz",
+    expected_tokens=60000  # Hint for import optimization
+)
 ```
 
 ### Configuration
@@ -220,7 +255,9 @@ EMX-MCP Server is configured via **environment variables** set in your MCP clien
       "env": {
         "EMX_MODEL_DEVICE": "cuda",
         "EMX_MEMORY_GAMMA": "1.5",
-        "EMX_STORAGE_VECTOR_DIM": "384"
+        "EMX_STORAGE_VECTOR_DIM": "384",
+        "EMX_SEGMENTATION_ENABLE_REFINEMENT": "true",
+        "EMX_SEGMENTATION_REFINEMENT_METRIC": "modularity"
       }
     }
   }
@@ -228,11 +265,12 @@ EMX-MCP Server is configured via **environment variables** set in your MCP clien
 ```
 
 **📖 Configuration Documentation:**
-- **[ENVIRONMENT_VARIABLES.md](docs/ENVIRONMENT_VARIABLES.md)** - Complete reference for all 22 configuration variables:
-  - Model selection and hardware acceleration
-  - Boundary detection tuning (gamma, context windows)
+- **[ENVIRONMENT_VARIABLES.md](docs/ENVIRONMENT_VARIABLES.md)** - Complete reference for all configuration variables:
+  - Model selection and hardware acceleration (GPU/CPU)
+  - Boundary detection tuning (gamma, context windows, refinement)
   - Memory hierarchy sizing (init/local/episodic tiers)
-  - FAISS index configuration
+  - FAISS IVF index configuration (nlist, nprobe, SQ compression)
+  - Batch encoding and retrieval optimization
   - Recommended configurations for different use cases
 
 ## 📝 How to Build
@@ -276,7 +314,7 @@ EMX_MODEL_DEVICE=cuda EMX_MEMORY_GAMMA=1.5 emx-mcp-server
 
 ## 🤝 Feedback and Contributions
 
-We've made every effort to implement all the core aspects of the EM-LLM algorithm in the best possible way using embedding-based approaches. However, the development journey doesn't end here, and your input is crucial for our continuous improvement.
+We've made every effort to implement all the core aspects of the EM-LLM algorithm in the best possible way using embedding-based approaches with graph-theoretic boundary refinement. However, the development journey doesn't end here, and your input is crucial for our continuous improvement.
 
 > Whether you have feedback on features, have encountered any bugs, or have suggestions for enhancements, we're eager to hear from you. Your insights help us make the EMX-MCP Server library more robust and user-friendly.
 

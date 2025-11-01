@@ -180,7 +180,7 @@ class HierarchicalMemoryStore:
         Store event to disk or JSON file.
 
         Returns:
-            (should_offload, temp_file_path)
+            (was_offloaded, temp_file_path)
         """
 
         if should_offload := self.disk_manager.should_offload(len(event.tokens)):
@@ -188,7 +188,7 @@ class HierarchicalMemoryStore:
             logger.info(
                 f"Event {event.event_id} offloaded to disk ({len(event.tokens)} tokens)"
             )
-            return True, None
+            return should_offload, None
 
         # Atomic JSON write
         event_file = self.events_path / f"{event.event_id}.json"

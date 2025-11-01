@@ -6,7 +6,6 @@ Uses sentence-transformers for efficient, high-quality embeddings.
 import numpy as np
 from typing import List, Optional, TYPE_CHECKING
 import logging
-import os
 
 if TYPE_CHECKING:
     import torch

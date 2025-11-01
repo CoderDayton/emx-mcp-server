@@ -9,8 +9,9 @@ from emx_mcp.memory.project_manager import ProjectMemoryManager
 from emx_mcp.utils.config import load_config
 from emx_mcp.utils.logging import setup_logging
 from emx_mcp.tools import (
-    remember_context as remember_context_impl,
+    store_memory as store_memory_impl,
     recall_memories as recall_memories_impl,
+    remove_memories as remove_memories_impl,
     manage_memory as manage_memory_impl,
     transfer_memory as transfer_memory_impl,
     search_memory_batch as search_memory_batch_impl,
@@ -102,7 +103,7 @@ def get_memory_status() -> dict:
 
 
 @mcp.tool()
-def remember_context(
+def store_memory(
     content: str,
     metadata: Optional[dict[Any, Any]] = None,
     auto_segment: bool = True,
@@ -131,7 +132,7 @@ def remember_context(
     Returns:
         Event IDs created, segmentation info, and index health status
     """
-    return remember_context_impl(
+    return store_memory_impl(
         manager, content, metadata, auto_segment, gamma, expected_tokens
     )
 
@@ -153,7 +154,7 @@ def recall_memories(
     4. Returns formatted results optimized for your use case
 
     Search quality depends on index optimization - use EMX_EXPECTED_TOKENS or
-    pass expected_tokens to remember_context() for optimal nlist configuration.
+    pass expected_tokens to store_memory() for optimal nlist configuration.
     Check index health with manage_memory(action="stats").
 
     Args:
@@ -166,6 +167,33 @@ def recall_memories(
         Retrieved memories with relevance scores and index health info
     """
     return recall_memories_impl(manager, query, scope, format, k)
+
+
+@mcp.tool()
+def remove_memories(
+    event_ids: list[str],
+    confirm: bool = False,
+) -> dict:
+    """
+    Remove specific memories (events) from project memory.
+
+    Use this to selectively delete memories you no longer need, freeing up
+    storage and improving search relevance. Unlike manage_memory(action="clear")
+    which deletes everything, this removes only the specified events.
+
+    The removal is permanent and affects all storage backends:
+    - Vector store (FAISS embeddings)
+    - Graph store (temporal relationships)
+    - Disk/JSON storage (event data)
+
+    Args:
+        event_ids: List of event IDs to remove (get these from recall_memories)
+        confirm: Safety flag - must be True to execute deletion
+
+    Returns:
+        Removal status, count of removed events, and updated system stats
+    """
+    return remove_memories_impl(manager, event_ids, confirm)
 
 
 @mcp.tool()

@@ -6,7 +6,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def remember_context(
+def store_memory(
     manager,
     content: str,
     metadata: Optional[dict[Any, Any]] = None,

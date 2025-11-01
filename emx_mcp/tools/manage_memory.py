@@ -112,7 +112,7 @@ def manage_memory(
             },
             "recommendation": (
                 f"Set EMX_EXPECTED_TOKENS={expected_tokens} or pass expected_tokens={expected_tokens} "
-                f"to remember_context() for optimal nlist={optimal_nlist}"
+                f"to store_memory() for optimal nlist={optimal_nlist}"
             ),
         }
 
