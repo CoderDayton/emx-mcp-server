@@ -1,9 +1,8 @@
 """Data models for project contexts."""
 
-from dataclasses import dataclass, field
-from typing import Dict, List, Optional
-from pathlib import Path
 import time
+from dataclasses import dataclass, field
+from pathlib import Path
 
 
 @dataclass
@@ -27,7 +26,7 @@ class ProjectContext:
     total_vectors: int = 0
 
     # Configuration overrides
-    config_overrides: Optional[Dict] = None
+    config_overrides: dict | None = None
 
     def update_stats(self, events: int = 0, tokens: int = 0, vectors: int = 0):
         """Update statistics."""
@@ -36,7 +35,7 @@ class ProjectContext:
         self.total_vectors = vectors
         self.last_modified = time.time()
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         """Convert to dictionary."""
         return {
             "project_id": self.project_id,
@@ -51,7 +50,7 @@ class ProjectContext:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict) -> "ProjectContext":
+    def from_dict(cls, data: dict) -> "ProjectContext":
         """Create from dictionary."""
         return cls(
             project_id=data["project_id"],
@@ -76,15 +75,15 @@ class GlobalContext:
 
     created_at: float = field(default_factory=time.time)
     total_shared_events: int = 0
-    contributing_projects: List[str] = field(default_factory=list)
-    semantic_clusters: Dict[str, List[str]] = field(default_factory=dict)
+    contributing_projects: list[str] = field(default_factory=list)
+    semantic_clusters: dict[str, list[str]] = field(default_factory=dict)
 
     def add_project(self, project_id: str):
         """Add project to global context."""
         if project_id not in self.contributing_projects:
             self.contributing_projects.append(project_id)
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         """Convert to dictionary."""
         return {
             "created_at": self.created_at,

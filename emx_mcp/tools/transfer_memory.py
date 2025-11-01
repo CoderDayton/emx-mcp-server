@@ -1,6 +1,5 @@
 """Tool for importing/exporting project memory to portable archives."""
 
-from typing import Optional
 import logging
 
 logger = logging.getLogger(__name__)
@@ -11,7 +10,7 @@ def transfer_memory(
     action: str,
     path: str,
     merge: bool = False,
-    expected_tokens: Optional[int] = None,
+    expected_tokens: int | None = None,
 ) -> dict:
     """
     Import or export project memory to/from portable archive files.

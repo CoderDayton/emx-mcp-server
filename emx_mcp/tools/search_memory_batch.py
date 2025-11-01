@@ -1,7 +1,7 @@
 """Tool for batch similarity search with adaptive CPU/GPU routing."""
 
-from typing import Any
 import logging
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -73,11 +73,9 @@ def search_memory_batch(
         )
         used_batch_api = True
 
-        for idx, (query, search_result) in enumerate(zip(queries, batch_results)):
+        for idx, (query, search_result) in enumerate(zip(queries, batch_results, strict=True)):
             event_ids = [ev["event_id"] for ev in search_result.get("events", [])]
-            distances = [
-                ev.get("distance", 0.0) for ev in search_result.get("events", [])
-            ]
+            distances = [ev.get("distance", 0.0) for ev in search_result.get("events", [])]
 
             result_entry: dict[str, Any] = {
                 "query_index": idx,
@@ -95,7 +93,7 @@ def search_memory_batch(
             results_per_query.append(result_entry)
     else:
         # Fall back to individual queries for small batches
-        for idx, (query, query_emb) in enumerate(zip(queries, query_embeddings)):
+        for idx, (query, query_emb) in enumerate(zip(queries, query_embeddings, strict=True)):
             search_result = manager.retrieve_memories(
                 query_emb.tolist(),
                 k_similarity=k,
@@ -104,9 +102,7 @@ def search_memory_batch(
             )
 
             event_ids = [ev["event_id"] for ev in search_result.get("events", [])]
-            distances = [
-                ev.get("distance", 0.0) for ev in search_result.get("events", [])
-            ]
+            distances = [ev.get("distance", 0.0) for ev in search_result.get("events", [])]
 
             single_result: dict[str, Any] = {
                 "query_index": idx,
@@ -138,9 +134,7 @@ def search_memory_batch(
         "performance": {
             "gpu_enabled": vector_store.gpu_enabled,
             "used_batch_api": used_batch_api,
-            "routing_reason": (
-                "batch_optimized" if used_batch_api else "small_batch_sequential"
-            ),
+            "routing_reason": ("batch_optimized" if used_batch_api else "small_batch_sequential"),
             "nlist": current_nlist,
             "optimal_nlist": optimal_nlist,
             "nlist_ratio": nlist_ratio,

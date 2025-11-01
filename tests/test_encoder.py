@@ -1,9 +1,10 @@
 """Test EmbeddingEncoder with pytest-asyncio."""
 
-import pytest
-import numpy as np
-from pathlib import Path
 import sys
+from pathlib import Path
+
+import numpy as np
+import pytest
 
 from emx_mcp.embeddings.encoder import EmbeddingEncoder
 
@@ -44,9 +45,7 @@ class TestEmbeddingEncoder:
 
         # Test with different context windows
         for window in [1, 3, 5]:
-            embeddings = encoder.encode_tokens_with_context(
-                tokens, context_window=window
-            )
+            embeddings = encoder.encode_tokens_with_context(tokens, context_window=window)
             assert embeddings.shape == (len(tokens), encoder.dimension)
 
         # Validate embeddings properties
@@ -135,14 +134,10 @@ class TestEmbeddingEncoder:
         tokens = sample_tokens["short_sequence"]
 
         # Encode with context
-        contextual_embeddings = encoder.encode_tokens_with_context(
-            tokens, context_window=3
-        )
+        contextual_embeddings = encoder.encode_tokens_with_context(tokens, context_window=3)
 
         # Encode individual tokens
-        individual_embeddings = encoder.encode_tokens_with_context(
-            tokens, context_window=0
-        )
+        individual_embeddings = encoder.encode_tokens_with_context(tokens, context_window=0)
 
         # They should be different (context affects embeddings)
         # but both should be valid embeddings
@@ -153,9 +148,7 @@ class TestEmbeddingEncoder:
         for i in range(len(tokens) - 1):
             # Cosine similarity between consecutive contextual embeddings
             emb1 = contextual_embeddings[i] / np.linalg.norm(contextual_embeddings[i])
-            emb2 = contextual_embeddings[i + 1] / np.linalg.norm(
-                contextual_embeddings[i + 1]
-            )
+            emb2 = contextual_embeddings[i + 1] / np.linalg.norm(contextual_embeddings[i + 1])
             similarity = np.dot(emb1, emb2)
             # Should be somewhat positive (similar embeddings for neighboring tokens)
             assert similarity > -1.0  # Valid cosine similarity range

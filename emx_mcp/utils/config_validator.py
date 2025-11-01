@@ -1,7 +1,7 @@
 """Type-safe configuration validation using Pydantic Settings."""
 
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Literal
 
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -16,11 +16,11 @@ class ModelConfig(BaseSettings):
         default="all-MiniLM-L6-v2",
         description="Sentence-transformers model name",
     )
-    device: Optional[Literal["cpu", "cuda"]] = Field(
+    device: Literal["cpu", "cuda"] | None = Field(
         default=None,
         description="Device to run model on (None = auto-detect based on CUDA availability)",
     )
-    batch_size: Optional[int] = Field(
+    batch_size: int | None = Field(
         default=None,
         ge=1,
         le=512,
@@ -37,7 +37,7 @@ class ModelConfig(BaseSettings):
 
     @field_validator("batch_size")
     @classmethod
-    def validate_batch_size(cls, v: Optional[int]) -> Optional[int]:
+    def validate_batch_size(cls, v: int | None) -> int | None:
         """Validate batch_size when provided (None allowed for auto-scaling)."""
         if v is not None and (v < 1 or v > 512):
             raise ValueError(f"batch_size must be between 1 and 512, got {v}")
@@ -128,13 +128,9 @@ class MemoryConfig(BaseSettings):
     def validate_memory_sizes(self) -> "MemoryConfig":
         """Validate memory size relationships."""
         if self.n_mem > self.n_local:
-            raise ValueError(
-                f"n_mem ({self.n_mem}) should be <= n_local ({self.n_local})"
-            )
+            raise ValueError(f"n_mem ({self.n_mem}) should be <= n_local ({self.n_local})")
         if self.n_init > self.n_local:
-            raise ValueError(
-                f"n_init ({self.n_init}) should be <= n_local ({self.n_local})"
-            )
+            raise ValueError(f"n_init ({self.n_init}) should be <= n_local ({self.n_local})")
         return self
 
 
@@ -143,7 +139,7 @@ class StorageConfig(BaseSettings):
 
     model_config = SettingsConfigDict(env_prefix="EMX_STORAGE_")
 
-    vector_dim: Optional[int] = Field(
+    vector_dim: int | None = Field(
         default=None,
         ge=1,
         le=4096,
@@ -187,7 +183,10 @@ class StorageConfig(BaseSettings):
     )
     use_sq: bool = Field(
         default=True,
-        description="Enable 8-bit Scalar Quantization (SQ) compression for 4x memory reduction and 97-99% recall",
+        description=(
+            "Enable 8-bit Scalar Quantization (SQ) compression for "
+            "4x memory reduction and 97-99% recall"
+        ),
     )
     sq_bits: int = Field(
         default=8,
@@ -224,7 +223,7 @@ class StorageConfig(BaseSettings):
 
     @field_validator("vector_dim")
     @classmethod
-    def validate_vector_dim(cls, v: Optional[int]) -> Optional[int]:
+    def validate_vector_dim(cls, v: int | None) -> int | None:
         """Validate vector dimension is reasonable (None allowed for auto-detection)."""
         if v is None:
             return None  # Auto-detect from model
@@ -343,7 +342,7 @@ class EMXConfig(BaseSettings):
         alias="EMX_GLOBAL_PATH",
         description="Global memory path override",
     )
-    expected_tokens: Optional[int] = Field(
+    expected_tokens: int | None = Field(
         default=None,
         alias="EMX_EXPECTED_TOKENS",
         ge=1000,

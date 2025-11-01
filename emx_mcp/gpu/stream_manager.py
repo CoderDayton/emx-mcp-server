@@ -19,8 +19,9 @@ https://pytorch.org/docs/stable/notes/cuda.html#cuda-streams
 
 import logging
 import threading
+from collections.abc import Generator
 from contextlib import contextmanager
-from typing import Generator, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     import torch
@@ -90,16 +91,14 @@ class StreamManager:
         self._initialized = False
 
         # Lazy initialization - streams created on first acquire()
-        self._streams: list["torch.cuda.Stream"] = []
+        self._streams: list[torch.cuda.Stream] = []
         self._available_indices: list[int] = []
         self._lock = threading.Lock()
 
         # Thread-local storage for acquired streams
         self._thread_local = threading.local()
 
-        logger.info(
-            f"StreamManager initialized: pool_size={pool_size}, device={device}"
-        )
+        logger.info(f"StreamManager initialized: pool_size={pool_size}, device={device}")
 
     def _ensure_initialized(self):
         """Lazy initialization of stream pool."""
@@ -111,9 +110,7 @@ class StreamManager:
             if self._initialized:
                 return
 
-            logger.info(
-                f"Allocating {self.pool_size} CUDA streams on device {self.device}"
-            )
+            logger.info(f"Allocating {self.pool_size} CUDA streams on device {self.device}")
 
             # Set device context
             with torch.cuda.device(self.device):
@@ -132,7 +129,7 @@ class StreamManager:
             self._initialized = True
             logger.info(f"Successfully allocated {len(self._streams)} CUDA streams")
 
-    def acquire(self, timeout: Optional[float] = None) -> "torch.cuda.Stream":
+    def acquire(self, timeout: float | None = None) -> "torch.cuda.Stream":
         """
         Acquire stream from pool.
 
@@ -187,9 +184,10 @@ class StreamManager:
                 self._available_indices.append(stream_idx)
 
         # Remove from thread-local tracking
-        if hasattr(self._thread_local, "acquired_streams"):
-            if stream_idx in self._thread_local.acquired_streams:
-                self._thread_local.acquired_streams.remove(stream_idx)
+        if hasattr(self._thread_local, "acquired_streams") and (
+            stream_idx in self._thread_local.acquired_streams
+        ):
+            self._thread_local.acquired_streams.remove(stream_idx)
 
     @contextmanager
     def acquire_stream(self) -> Generator["torch.cuda.Stream", None, None]:
@@ -286,14 +284,14 @@ class StreamManager:
 
 
 # Global singleton stream manager (lazy initialization)
-_global_stream_manager: Optional[StreamManager] = None
+_global_stream_manager: StreamManager | None = None
 _global_stream_lock = threading.Lock()
 
 
 def get_global_stream_manager(
     pool_size: int = 4,
     device: int = 0,
-) -> Optional[StreamManager]:
+) -> StreamManager | None:
     """
     Get or create global stream manager singleton.
 

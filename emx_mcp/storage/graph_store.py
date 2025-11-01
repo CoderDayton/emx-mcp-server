@@ -1,9 +1,8 @@
 """SQLite-based graph storage for temporal relationships."""
 
+import logging
 import sqlite3
 from pathlib import Path
-from typing import List, Optional
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +62,7 @@ class GraphStore:
         event_id: str,
         timestamp: float,
         token_count: int,
-        metadata: Optional[str] = None,
+        metadata: str | None = None,
     ):
         """Add event node to graph."""
         cursor = self.conn.cursor()
@@ -92,9 +91,7 @@ class GraphStore:
         )
         self.conn.commit()
 
-    def link_events(
-        self, from_id: str, to_id: str, relationship: str = "PRECEDES", lag: int = 1
-    ):
+    def link_events(self, from_id: str, to_id: str, relationship: str = "PRECEDES", lag: int = 1):
         """Create temporal relationship between events."""
         cursor = self.conn.cursor()
         cursor.execute(
@@ -105,7 +102,7 @@ class GraphStore:
 
     def get_neighbors(
         self, event_id: str, max_distance: int = 3, bidirectional: bool = True
-    ) -> List[str]:
+    ) -> list[str]:
         """Get temporally adjacent events."""
         cursor = self.conn.cursor()
         # Increment access count
@@ -134,7 +131,7 @@ class GraphStore:
         backward = [row[0] for row in cursor.fetchall()]
         return backward + [event_id] + forward
 
-    def get_least_accessed_events(self, limit: int = 100) -> List[str]:
+    def get_least_accessed_events(self, limit: int = 100) -> list[str]:
         """Get least accessed events for pruning."""
         cursor = self.conn.cursor()
         cursor.execute(

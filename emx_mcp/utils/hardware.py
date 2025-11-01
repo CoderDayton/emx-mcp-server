@@ -21,9 +21,7 @@ def detect_device() -> Literal["cpu", "cuda"]:
             logger.info(f"GPU detected: {gpu_name}. Using CUDA acceleration.")
             return "cuda"
         else:
-            logger.warning(
-                "No GPU detected. Using CPU (will be slow). Check CUDA/WSL2 setup."
-            )
+            logger.warning("No GPU detected. Using CPU (will be slow). Check CUDA/WSL2 setup.")
             return "cpu"
     except ImportError:
         logger.warning("PyTorch not available. Falling back to CPU.")
@@ -46,9 +44,7 @@ def detect_batch_size(device: str, model_name: str = "all-MiniLM-L6-v2") -> int:
             import torch
 
             if not torch.cuda.is_available():
-                logger.warning(
-                    "CUDA device specified but not available. Using CPU batch size."
-                )
+                logger.warning("CUDA device specified but not available. Using CPU batch size.")
                 return 64
 
             # GPU: Adaptive based on VRAM
@@ -112,9 +108,7 @@ def enrich_config_with_hardware(config: dict) -> dict:
                 logger.error("CUDA requested but not available. Falling back to CPU.")
                 device = "cpu"
         except ImportError:
-            logger.error(
-                "CUDA requested but PyTorch not available. Falling back to CPU."
-            )
+            logger.error("CUDA requested but PyTorch not available. Falling back to CPU.")
             device = "cpu"
 
     # Batch size resolution

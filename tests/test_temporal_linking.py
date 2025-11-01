@@ -9,6 +9,7 @@ Validates that:
 """
 
 import sqlite3
+
 from emx_mcp.memory.project_manager import ProjectMemoryManager
 from emx_mcp.utils.config import load_config
 
@@ -36,9 +37,7 @@ def test_temporal_chain_with_uuid_event_ids(tmp_path):
     event_ids = []
     for i in range(5):
         tokens = [f"token_{j}" for j in range(i * 10, (i + 1) * 10)]
-        result = manager.add_event(
-            tokens, embeddings=None, metadata={"test_sequence": i}
-        )
+        result = manager.add_event(tokens, embeddings=None, metadata={"test_sequence": i})
         event_ids.append(result["event_id"])
 
     # Flush any buffered events to ensure they're persisted
@@ -48,12 +47,8 @@ def test_temporal_chain_with_uuid_event_ids(tmp_path):
     for event_id in event_ids:
         assert event_id.startswith("event_"), f"Event ID missing prefix: {event_id}"
         uuid_part = event_id.replace("event_", "")
-        assert len(uuid_part) == 32, (
-            f"UUID part wrong length: {len(uuid_part)} (expected 32)"
-        )
-        assert all(c in "0123456789abcdef" for c in uuid_part), (
-            f"Invalid hex in UUID: {uuid_part}"
-        )
+        assert len(uuid_part) == 32, f"UUID part wrong length: {len(uuid_part)} (expected 32)"
+        assert all(c in "0123456789abcdef" for c in uuid_part), f"Invalid hex in UUID: {uuid_part}"
 
     # Check graph database contains correct relationships
     graph_db_path = tmp_path / "project" / ".memories" / "graph_db" / "events.db"
@@ -63,9 +58,7 @@ def test_temporal_chain_with_uuid_event_ids(tmp_path):
     cursor = conn.cursor()
 
     # Verify 4 PRECEDES relationships (n-1 for n events)
-    cursor.execute(
-        "SELECT COUNT(*) FROM relationships WHERE relationship_type='PRECEDES'"
-    )
+    cursor.execute("SELECT COUNT(*) FROM relationships WHERE relationship_type='PRECEDES'")
     rel_count = cursor.fetchone()[0]
     assert rel_count == 4, f"Expected 4 PRECEDES links, found {rel_count}"
 

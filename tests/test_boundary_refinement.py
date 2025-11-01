@@ -10,6 +10,7 @@ Validates:
 
 import numpy as np
 import pytest
+
 from emx_mcp.memory.segmentation import SurpriseSegmenter
 
 
@@ -58,25 +59,19 @@ class TestBoundaryRefinement:
         topic3_embeddings = topic3_center + np.random.randn(34, embedding_dim) * 0.1
 
         # Concatenate and normalize
-        all_embeddings = np.vstack(
-            [topic1_embeddings, topic2_embeddings, topic3_embeddings]
-        )
+        all_embeddings = np.vstack([topic1_embeddings, topic2_embeddings, topic3_embeddings])
         norms = np.linalg.norm(all_embeddings, axis=1, keepdims=True)
         all_embeddings = all_embeddings / (norms + 1e-8)
 
         return all_embeddings
 
-    def test_refinement_enabled_flag(
-        self, segmenter_with_refinement, segmenter_without_refinement
-    ):
+    def test_refinement_enabled_flag(self, segmenter_with_refinement, segmenter_without_refinement):
         """Test that refinement flag is correctly stored."""
         assert segmenter_with_refinement.enable_refinement is True
         assert segmenter_without_refinement.enable_refinement is False
         assert segmenter_with_refinement.refinement_metric == "modularity"
 
-    def test_modularity_optimization(
-        self, segmenter_with_refinement, three_topic_embeddings
-    ):
+    def test_modularity_optimization(self, segmenter_with_refinement, three_topic_embeddings):
         """Test that modularity refinement finds better boundaries."""
         tokens = ["token"] * len(three_topic_embeddings)
 
@@ -87,9 +82,7 @@ class TestBoundaryRefinement:
         )
 
         # Should have boundaries near 0, 33, 66, 100
-        assert len(boundaries) >= 3, (
-            f"Expected at least 3 boundaries, got {len(boundaries)}"
-        )
+        assert len(boundaries) >= 3, f"Expected at least 3 boundaries, got {len(boundaries)}"
         assert boundaries[0] == 0, "First boundary should be at start"
         assert boundaries[-1] == len(tokens) - 1, "Last boundary should be at end"
 
@@ -121,9 +114,7 @@ class TestBoundaryRefinement:
         embeddings = embeddings / (norms + 1e-8)
 
         tokens = ["token"] * len(embeddings)
-        boundaries = segmenter.identify_boundaries(
-            tokens=tokens, token_embeddings=embeddings
-        )
+        boundaries = segmenter.identify_boundaries(tokens=tokens, token_embeddings=embeddings)
 
         # Should find at least 2 boundaries (start and end)
         assert len(boundaries) >= 2
@@ -136,7 +127,8 @@ class TestBoundaryRefinement:
         segmenter_without_refinement,
         three_topic_embeddings,
     ):
-        """Test that refinement produces different (presumably better) boundaries than surprise-only."""
+        """Test that refinement produces different (presumably better)
+        boundaries than surprise-only."""
         tokens = ["token"] * len(three_topic_embeddings)
 
         # Get boundaries without refinement
@@ -176,9 +168,7 @@ class TestBoundaryRefinement:
         embeddings = embeddings / (norms + 1e-8)
 
         tokens = ["token"] * 200
-        boundaries = segmenter.identify_boundaries(
-            tokens=tokens, token_embeddings=embeddings
-        )
+        boundaries = segmenter.identify_boundaries(tokens=tokens, token_embeddings=embeddings)
 
         # Should complete without error (large segments skipped)
         assert len(boundaries) >= 2
@@ -201,9 +191,7 @@ class TestBoundaryRefinement:
         embeddings = embeddings / (norms + 1e-8)
 
         tokens = ["token"] * 50
-        boundaries = segmenter.identify_boundaries(
-            tokens=tokens, token_embeddings=embeddings
-        )
+        boundaries = segmenter.identify_boundaries(tokens=tokens, token_embeddings=embeddings)
 
         # Should complete without error (short segments skipped)
         assert len(boundaries) >= 2
@@ -229,9 +217,7 @@ class TestBoundaryRefinement:
         optimal_pos = segmenter_with_refinement._optimize_modularity(adjacency, 0, 10)
 
         # Optimal position should be near 5 (split between clusters)
-        assert 4 <= optimal_pos <= 6, (
-            f"Expected optimal split near 5, got {optimal_pos}"
-        )
+        assert 4 <= optimal_pos <= 6, f"Expected optimal split near 5, got {optimal_pos}"
 
     def test_conductance_computation_correctness(self):
         """Test conductance optimization produces expected results for simple case."""
@@ -253,20 +239,14 @@ class TestBoundaryRefinement:
         optimal_pos = segmenter._optimize_conductance(adjacency, 0, 10)
 
         # Optimal position should be near 5 (split between clusters)
-        assert 4 <= optimal_pos <= 6, (
-            f"Expected optimal split near 5, got {optimal_pos}"
-        )
+        assert 4 <= optimal_pos <= 6, f"Expected optimal split near 5, got {optimal_pos}"
 
-    def test_refinement_with_no_embeddings_raises_error(
-        self, segmenter_with_refinement
-    ):
+    def test_refinement_with_no_embeddings_raises_error(self, segmenter_with_refinement):
         """Test that refinement without embeddings raises appropriate error."""
         tokens = ["token"] * 50
 
         with pytest.raises(ValueError, match="token_embeddings required"):
-            segmenter_with_refinement.identify_boundaries(
-                tokens=tokens, token_embeddings=None
-            )
+            segmenter_with_refinement.identify_boundaries(tokens=tokens, token_embeddings=None)
 
     def test_both_metrics_produce_valid_results(self, three_topic_embeddings):
         """Test that both modularity and conductance produce valid boundaries."""
@@ -325,9 +305,7 @@ class TestBoundaryRefinementPerformance:
             import time
 
             start = time.time()
-            boundaries = segmenter.identify_boundaries(
-                tokens=tokens, token_embeddings=embeddings
-            )
+            boundaries = segmenter.identify_boundaries(tokens=tokens, token_embeddings=embeddings)
             elapsed = time.time() - start
             times.append(elapsed)
 
@@ -338,9 +316,7 @@ class TestBoundaryRefinementPerformance:
         # For O(nm) with m=100: 800 tokens should take ~8x the time of 100 tokens
         # Allow for measurement noise: check 8x tokens takes < 20x time (not 64x as O(n²) would)
         time_ratio = times[-1] / times[0]
-        assert time_ratio < 20, (
-            f"Complexity appears too high: {times}, ratio={time_ratio:.1f}x"
-        )
+        assert time_ratio < 20, f"Complexity appears too high: {times}, ratio={time_ratio:.1f}x"
 
     def test_large_segment_skipping_prevents_slowdown(self):
         """Test that segments larger than max_refinement_window are skipped efficiently."""
@@ -362,9 +338,7 @@ class TestBoundaryRefinementPerformance:
         import time
 
         start = time.time()
-        boundaries = segmenter.identify_boundaries(
-            tokens=tokens, token_embeddings=embeddings
-        )
+        boundaries = segmenter.identify_boundaries(tokens=tokens, token_embeddings=embeddings)
         elapsed = time.time() - start
 
         # Should complete quickly (< 1 second) because large segments are skipped

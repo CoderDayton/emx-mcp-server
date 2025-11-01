@@ -3,9 +3,10 @@ Embedding encoder for converting tokens to vector representations.
 Uses sentence-transformers for efficient, high-quality embeddings.
 """
 
-import numpy as np
-from typing import List, Optional, TYPE_CHECKING
 import logging
+from typing import TYPE_CHECKING, Optional
+
+import numpy as np
 
 if TYPE_CHECKING:
     import torch
@@ -30,9 +31,9 @@ class EmbeddingEncoder:
     def __init__(
         self,
         model_name: str,
-        device: Optional[str] = None,
-        batch_size: Optional[int] = None,
-        gpu_config: Optional[dict] = None,
+        device: str | None = None,
+        batch_size: int | None = None,
+        gpu_config: dict | None = None,
         enable_cuda_graphs: bool = False,
     ):
         """
@@ -41,22 +42,27 @@ class EmbeddingEncoder:
         Args:
             model_name: HuggingFace model identifier
             device: "cpu" or "cuda" (must be enriched by hardware.py, not None at runtime)
-            batch_size: Batch size for encoding (must be enriched by hardware.py, not None at runtime)
-            gpu_config: Optional GPU configuration dict with pinned memory settings
-            enable_cuda_graphs: Enable CUDA graph capture for inference speedup (requires PyTorch 2.0+)
+            batch_size: Batch size for encoding (must be enriched by
+                hardware.py, not None at runtime)
+            gpu_config: Optional GPU configuration dict with pinned memory
+                settings
+            enable_cuda_graphs: Enable CUDA graph capture for inference
+                speedup (requires PyTorch 2.0+)
 
         Raises:
-            AssertionError: If device or batch_size is None (config not enriched)
+            ValueError: If device or batch_size is None (config not enriched)
         """
-        # Runtime assertions: config must be enriched before passing to encoder
-        assert device is not None, (
-            "device must not be None. Config should be enriched via "
-            "enrich_config_with_hardware() before initializing encoder."
-        )
-        assert batch_size is not None, (
-            "batch_size must not be None. Config should be enriched via "
-            "enrich_config_with_hardware() before initializing encoder."
-        )
+        # Runtime validation: config must be enriched before passing to encoder
+        if device is None:
+            raise ValueError(
+                "device must not be None. Config should be enriched via "
+                "enrich_config_with_hardware() before initializing encoder."
+            )
+        if batch_size is None:
+            raise ValueError(
+                "batch_size must not be None. Config should be enriched via "
+                "enrich_config_with_hardware() before initializing encoder."
+            )
 
         try:
             import torch
@@ -86,9 +92,7 @@ class EmbeddingEncoder:
             if device == "cuda":
                 self.torch.backends.cuda.matmul.allow_tf32 = True
                 self.torch.backends.cudnn.allow_tf32 = True
-                logger.info(
-                    "Set matmul precision to 'high' (TF32) for faster inference"
-                )
+                logger.info("Set matmul precision to 'high' (TF32) for faster inference")
 
             if device == "cuda" and self.torch.__version__ >= "2.0.0":
                 try:
@@ -104,9 +108,7 @@ class EmbeddingEncoder:
                         f"torch.compile failed (nvcc permission denied): {e}, using eager mode"
                     )
                 except FileNotFoundError as e:
-                    logger.warning(
-                        f"torch.compile failed (nvcc not found): {e}, using eager mode"
-                    )
+                    logger.warning(f"torch.compile failed (nvcc not found): {e}, using eager mode")
                 except Exception as e:
                     logger.warning(f"torch.compile failed: {e}, using eager mode")
 
@@ -155,7 +157,7 @@ class EmbeddingEncoder:
 
     def encode_batch(
         self,
-        token_lists: List[List[str]],
+        token_lists: list[list[str]],
         use_pinned_memory: bool = False,
         stream: Optional["torch.cuda.Stream"] = None,
     ) -> np.ndarray:
@@ -199,9 +201,7 @@ class EmbeddingEncoder:
 
         return embeddings.astype(np.float32)
 
-    def encode_tokens_with_context(
-        self, tokens: List[str], context_window: int = 10
-    ) -> np.ndarray:
+    def encode_tokens_with_context(self, tokens: list[str], context_window: int = 10) -> np.ndarray:
         """
         Encode tokens individually with local context for surprise calculation.
 
@@ -218,9 +218,7 @@ class EmbeddingEncoder:
             raise ValueError("Token list cannot be empty")
 
         n_tokens = len(tokens)
-        logger.info(
-            f"Building context strings for {n_tokens} tokens (window={context_window})"
-        )
+        logger.info(f"Building context strings for {n_tokens} tokens (window={context_window})")
 
         # Build all context strings upfront - O(n) operation
         context_texts = []
@@ -233,18 +231,20 @@ class EmbeddingEncoder:
         # sentence-transformers handles internal batching automatically
         logger.info(f"Encoding {n_tokens} contexts in single batch operation...")
 
-        with self.torch.inference_mode():
-            with self.torch.autocast(
+        with (
+            self.torch.inference_mode(),
+            self.torch.autocast(
                 enabled=self.enable_cuda_graphs and self.device == "cuda",
                 device_type=self.device,
-            ):
-                embeddings = self.model.encode(
-                    context_texts,
-                    batch_size=self.batch_size,  # Internal batching, not repeated calls
-                    convert_to_numpy=True,
-                    show_progress_bar=False,
-                    device=self.device,
-                )
+            ),
+        ):
+            embeddings = self.model.encode(
+                context_texts,
+                batch_size=self.batch_size,  # Internal batching, not repeated calls
+                convert_to_numpy=True,
+                show_progress_bar=False,
+                device=self.device,
+            )
 
         logger.info(f"Batch encoding complete: {embeddings.shape}")
         return embeddings.astype(np.float32)
@@ -274,18 +274,18 @@ class EmbeddingEncoder:
     def _warmup(self):
         """Warmup compiled model (happens once at init)."""
         logger.debug("Warming up compiled encoder...")
-        with self.torch.inference_mode():
-            with self.torch.autocast(
-                enabled=self.device == "cuda", device_type=self.device
-            ):
-                dummy = ["warmup"] * min(10, self.batch_size)
-                for _ in range(3):
-                    self.model.encode(
-                        dummy,
-                        batch_size=len(dummy),
-                        show_progress_bar=False,
-                        convert_to_numpy=False,
-                    )
+        with (
+            self.torch.inference_mode(),
+            self.torch.autocast(enabled=self.device == "cuda", device_type=self.device),
+        ):
+            dummy = ["warmup"] * min(10, self.batch_size)
+            for _ in range(3):
+                self.model.encode(
+                    dummy,
+                    batch_size=len(dummy),
+                    show_progress_bar=False,
+                    convert_to_numpy=False,
+                )
         logger.debug("Warmup complete.")
 
     def get_device_info(self) -> dict:
@@ -308,9 +308,7 @@ class EmbeddingEncoder:
                 "gpu_name": props.name,
                 "gpu_memory_gb": props.total_memory / 1e9,
                 "cuda_capability": f"{props.major}.{props.minor}",
-                "pinned_memory_enabled": self.gpu_config.get(
-                    "enable_pinned_memory", False
-                ),
+                "pinned_memory_enabled": self.gpu_config.get("enable_pinned_memory", False),
             }
 
         return info

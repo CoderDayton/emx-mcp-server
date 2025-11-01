@@ -1,7 +1,7 @@
 """Tool for storing new information into project memory."""
 
-from typing import Optional, Any
 import logging
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -9,10 +9,10 @@ logger = logging.getLogger(__name__)
 def store_memory(
     manager,
     content: str,
-    metadata: Optional[dict[Any, Any]] = None,
+    metadata: dict[Any, Any] | None = None,
     auto_segment: bool = True,
     gamma: float = 1.0,
-    expected_tokens: Optional[int] = None,
+    expected_tokens: int | None = None,
 ) -> dict:
     """
     Store new information into project memory with automatic segmentation.
@@ -37,9 +37,7 @@ def store_memory(
     Returns:
         Event IDs created, segmentation info, and index health status
     """
-    logger.info(
-        f"Remembering content: {len(content)} chars, auto_segment={auto_segment}"
-    )
+    logger.info(f"Remembering content: {len(content)} chars, auto_segment={auto_segment}")
 
     # Simple tokenization (split on whitespace)
     tokens = content.split()

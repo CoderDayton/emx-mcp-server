@@ -9,12 +9,13 @@ Fixes:
 - Graceful fallback if no patterns
 """
 
-from collections import OrderedDict
-from typing import List, Dict, Union, Any, Optional
-import numpy as np
-import logging
-import itertools
 import contextlib
+import itertools
+import logging
+from collections import OrderedDict
+from typing import Any
+
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -36,23 +37,21 @@ class CachedBatchRetrieval:
         self.max_cache_size = config.get("cache_size", 1000)
 
         # Query pattern tracking
-        self.query_frequency: Dict[str, int] = {}
+        self.query_frequency: dict[str, int] = {}
         self.cache_hits = 0
         self.cache_misses = 0
 
-        logger.info(
-            f"✅ CachedBatchRetrieval initialized (cache_size={self.max_cache_size})"
-        )
+        logger.info(f"✅ CachedBatchRetrieval initialized (cache_size={self.max_cache_size})")
 
     # ============ SINGLE QUERY (cache optimized) ============
 
     def retrieve(
         self,
-        query_embedding: List[float],
+        query_embedding: list[float],
         k_similarity: int,
         k_contiguity: int,
         use_contiguity: bool,
-    ) -> Dict:
+    ) -> dict:
         """
         Retrieve for single query with cache optimization.
 
@@ -65,9 +64,7 @@ class CachedBatchRetrieval:
 
         # Track query patterns for cache warmup
         for event in similarity_events:
-            self.query_frequency[event.event_id] = (
-                self.query_frequency.get(event.event_id, 0) + 1
-            )
+            self.query_frequency[event.event_id] = self.query_frequency.get(event.event_id, 0) + 1
 
         # Stage 2: Fast contiguity with cached retrieval
         contiguity_events = []
@@ -100,11 +97,11 @@ class CachedBatchRetrieval:
 
     def retrieve_batch(
         self,
-        query_embeddings: Union[np.ndarray, List[List[float]]],
+        query_embeddings: np.ndarray | list[list[float]],
         k_similarity: int,
         k_contiguity: int,
         use_contiguity: bool,
-    ) -> List[Dict]:
+    ) -> list[dict]:
         """
         Retrieve for multiple queries with batch optimization + cache.
 
@@ -113,17 +110,14 @@ class CachedBatchRetrieval:
         - 3-5x faster via GPU cache hits on repeated events
         - Graceful fallback to individual processing if batch methods unavailable
         """
-        # Convert any non-numpy array input to a numpy array (supports lists, tuples, generators, etc.)
+        # Convert any non-numpy array input to a numpy array
+        # (supports lists, tuples, generators, etc.)
         if not isinstance(query_embeddings, np.ndarray):
             query_embeddings = np.array(query_embeddings, dtype=np.float32)
 
         if query_embeddings.ndim != 2:
-            logger.error(
-                f"query_embeddings must be 2D, got shape {query_embeddings.shape}"
-            )
-            raise ValueError(
-                f"query_embeddings must be 2D, got shape {query_embeddings.shape}"
-            )
+            logger.error(f"query_embeddings must be 2D, got shape {query_embeddings.shape}")
+            raise ValueError(f"query_embeddings must be 2D, got shape {query_embeddings.shape}")
 
         batch_size = query_embeddings.shape[0]
         all_results = []
@@ -136,16 +130,14 @@ class CachedBatchRetrieval:
             )
         except AttributeError:
             # Fallback to individual processing if batch method not available
-            logger.warning(
-                "Batch search not available, falling back to individual queries"
-            )
+            logger.warning("Batch search not available, falling back to individual queries")
             batch_similarity_events = [
                 self.memory_store.search_events(query_embeddings[i], k_similarity)
                 for i in range(batch_size)
             ]
 
         # Process results for each query
-        for i, similarity_events in enumerate(batch_similarity_events):
+        for _i, similarity_events in enumerate(batch_similarity_events):
             # Track query patterns for cache warmup
             for event in similarity_events:
                 self.query_frequency[event.event_id] = (
@@ -187,7 +179,7 @@ class CachedBatchRetrieval:
 
     # ============ CACHE MANAGEMENT ============
 
-    def _get_event_cached(self, event_id: str) -> Optional[Any]:
+    def _get_event_cached(self, event_id: str) -> Any | None:
         """
         Get event with GPU cache optimization.
 
@@ -255,7 +247,7 @@ class CachedBatchRetrieval:
 
         logger.info(f"✅ Manual warmup complete: cache_size={len(self.vector_cache)}")
 
-    def warmup_cache_smart(self, num_events: Optional[int] = None) -> None:
+    def warmup_cache_smart(self, num_events: int | None = None) -> None:
         """
         Smart cache warmup based on query frequency patterns.
 
@@ -274,14 +266,14 @@ class CachedBatchRetrieval:
 
         # Get most frequent events
         num_to_warm = num_events or min(len(self.query_frequency), self.max_cache_size)
-        hot_events = sorted(
-            self.query_frequency.items(), key=lambda x: x[1], reverse=True
-        )[:num_to_warm]
+        hot_events = sorted(self.query_frequency.items(), key=lambda x: x[1], reverse=True)[
+            :num_to_warm
+        ]
 
         logger.info(f"Smart cache warmup: loading {len(hot_events)} hot events...")
 
         warmed_count = 0
-        for event_id, freq in hot_events:
+        for event_id, _freq in hot_events:
             try:
                 self._get_event_cached(event_id)
                 warmed_count += 1
@@ -316,9 +308,7 @@ class CachedBatchRetrieval:
                     event_id = f"evt_{i}"
                     self._get_event_cached(event_id)
 
-            logger.info(
-                f"✅ Random cache warmup: {len(self.vector_cache)} events cached"
-            )
+            logger.info(f"✅ Random cache warmup: {len(self.vector_cache)} events cached")
         except Exception as e:
             logger.warning(f"Random warmup failed: {e}")
 
@@ -336,11 +326,9 @@ class CachedBatchRetrieval:
 
     # ============ HELPER METHODS ============
 
-    def _retrieve_contiguous_ids(
-        self, anchor_event_ids: List[str], k_contiguity: int
-    ) -> List[str]:
+    def _retrieve_contiguous_ids(self, anchor_event_ids: list[str], k_contiguity: int) -> list[str]:
         """Fast temporal neighbor retrieval."""
-        contiguous: List[str] = []
+        contiguous: list[str] = []
         seen = set(anchor_event_ids)
 
         for event_id in anchor_event_ids:
@@ -372,7 +360,7 @@ class CachedBatchRetrieval:
 
     # ============ STATISTICS & MONITORING ============
 
-    def get_cache_info(self) -> Dict:
+    def get_cache_info(self) -> dict:
         """Get detailed cache statistics."""
         return {
             "cache_size": len(self.vector_cache),

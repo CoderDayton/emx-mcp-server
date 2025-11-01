@@ -10,9 +10,10 @@ Key patterns:
 """
 
 import logging
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from threading import Lock
-from typing import TYPE_CHECKING, Any, Callable, Generator, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
 
@@ -67,7 +68,7 @@ class PinnedMemoryPool:
         buffer_size: int = 4,
         dimension: int = 384,
         max_batch_size: int = 128,
-        dtype: Optional[Any] = None,  # torch.dtype at runtime
+        dtype: Any | None = None,  # torch.dtype at runtime
     ):
         """
         Initialize pool with pre-allocated pinned buffers.
@@ -121,8 +122,8 @@ class PinnedMemoryPool:
         logger.info(f"Successfully allocated {len(self._buffers)} pinned buffers")
 
     def acquire(
-        self, batch_size: int, timeout: Optional[float] = None
-    ) -> Tuple[Any, Callable[[], None]]:  # Returns (torch.Tensor, release_callback)
+        self, batch_size: int, timeout: float | None = None
+    ) -> tuple[Any, Callable[[], None]]:  # Returns (torch.Tensor, release_callback)
         """
         Acquire a pinned buffer from pool.
 
@@ -143,8 +144,7 @@ class PinnedMemoryPool:
         """
         if batch_size > self.max_batch_size:
             raise ValueError(
-                f"Requested batch_size {batch_size} exceeds "
-                f"max_batch_size {self.max_batch_size}"
+                f"Requested batch_size {batch_size} exceeds max_batch_size {self.max_batch_size}"
             )
 
         # Acquire buffer with lock
@@ -171,9 +171,7 @@ class PinnedMemoryPool:
         return buffer_slice, release
 
     @contextmanager
-    def acquire_context(
-        self, batch_size: int
-    ) -> Generator[Any, None, None]:  # Yields torch.Tensor
+    def acquire_context(self, batch_size: int) -> Generator[Any, None, None]:  # Yields torch.Tensor
         """
         Context manager for automatic buffer release.
 
@@ -206,7 +204,7 @@ class PinnedMemoryPool:
     @staticmethod
     def numpy_to_pinned(
         array: np.ndarray, pool: Optional["PinnedMemoryPool"] = None
-    ) -> Tuple[Any, Optional[Callable[[], None]]]:  # Returns (torch.Tensor, release)
+    ) -> tuple[Any, Callable[[], None] | None]:  # Returns (torch.Tensor, release)
         """
         Convert numpy array to pinned PyTorch tensor.
 
@@ -248,7 +246,7 @@ class PinnedMemoryPool:
 
 
 # Global singleton pool (lazy initialization)
-_global_pool: Optional[PinnedMemoryPool] = None
+_global_pool: PinnedMemoryPool | None = None
 _global_pool_lock = Lock()
 
 
@@ -256,7 +254,7 @@ def get_global_pool(
     buffer_size: int = 4,
     dimension: int = 384,
     max_batch_size: int = 128,
-) -> Optional[PinnedMemoryPool]:
+) -> PinnedMemoryPool | None:
     """
     Get or create global pinned memory pool singleton.
 

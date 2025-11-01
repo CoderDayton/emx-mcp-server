@@ -2,6 +2,7 @@
 
 import numpy as np
 import pytest
+
 from emx_mcp.embeddings.encoder import EmbeddingEncoder
 from emx_mcp.gpu.pinned_memory import TORCH_AVAILABLE
 
@@ -50,9 +51,7 @@ class TestPinnedMemoryEncoding:
             ["Another", "test", "sequence"],
         ]
 
-        result = encoder_with_gpu_config.encode_batch(
-            token_lists, use_pinned_memory=True
-        )
+        result = encoder_with_gpu_config.encode_batch(token_lists, use_pinned_memory=True)
 
         # Below threshold (32), should return numpy array
         assert isinstance(result, np.ndarray)
@@ -64,9 +63,7 @@ class TestPinnedMemoryEncoding:
         # Create batch above threshold
         token_lists = [["token", str(i)] for i in range(40)]
 
-        result = encoder_with_gpu_config.encode_batch(
-            token_lists, use_pinned_memory=True
-        )
+        result = encoder_with_gpu_config.encode_batch(token_lists, use_pinned_memory=True)
 
         if TORCH_AVAILABLE:
             # May return tuple (pinned_tensor, release_callback) or numpy fallback
@@ -91,9 +88,7 @@ class TestPinnedMemoryEncoding:
         """Pinned memory disabled should always return numpy arrays."""
         token_lists = [["token", str(i)] for i in range(50)]
 
-        result = encoder_without_gpu_config.encode_batch(
-            token_lists, use_pinned_memory=True
-        )
+        result = encoder_without_gpu_config.encode_batch(token_lists, use_pinned_memory=True)
 
         # Should return numpy even though use_pinned_memory=True
         assert isinstance(result, np.ndarray)
@@ -103,9 +98,7 @@ class TestPinnedMemoryEncoding:
         """use_pinned_memory=False should always return numpy."""
         token_lists = [["token", str(i)] for i in range(50)]
 
-        result = encoder_with_gpu_config.encode_batch(
-            token_lists, use_pinned_memory=False
-        )
+        result = encoder_with_gpu_config.encode_batch(token_lists, use_pinned_memory=False)
 
         assert isinstance(result, np.ndarray)
         assert result.shape == (50, encoder_with_gpu_config.dimension)
@@ -118,14 +111,10 @@ class TestPinnedMemoryEncoding:
         ]
 
         # Get regular numpy result
-        numpy_result = encoder_with_gpu_config.encode_batch(
-            token_lists, use_pinned_memory=False
-        )
+        numpy_result = encoder_with_gpu_config.encode_batch(token_lists, use_pinned_memory=False)
 
         # Get pinned memory result (will be numpy due to small batch)
-        pinned_result = encoder_with_gpu_config.encode_batch(
-            token_lists, use_pinned_memory=True
-        )
+        pinned_result = encoder_with_gpu_config.encode_batch(token_lists, use_pinned_memory=True)
 
         # Both should be numpy for small batches
         assert isinstance(numpy_result, np.ndarray)
@@ -142,9 +131,7 @@ class TestPinnedMemoryEncoding:
         # Create large batch to trigger pinned memory
         token_lists = [["token", str(i)] for i in range(64)]
 
-        result = encoder_with_gpu_config.encode_batch(
-            token_lists, use_pinned_memory=True
-        )
+        result = encoder_with_gpu_config.encode_batch(token_lists, use_pinned_memory=True)
 
         if isinstance(result, tuple):
             _, release_callback = result

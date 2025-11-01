@@ -8,9 +8,9 @@ OPTIMIZED: Pure O(n) linear complexity - NO O(n³) refinement code.
 - No refinement overhead
 """
 
-import numpy as np
-from typing import List, Optional
 import logging
+
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -76,9 +76,9 @@ class SurpriseSegmenter:
     def identify_boundaries(
         self,
         tokens: list,
-        gamma: Optional[float] = None,
-        token_embeddings: Optional[np.ndarray] = None,
-    ) -> List[int]:
+        gamma: float | None = None,
+        token_embeddings: np.ndarray | None = None,
+    ) -> list[int]:
         """
         Identify event boundaries using adaptive surprise threshold.
 
@@ -106,9 +106,7 @@ class SurpriseSegmenter:
             surprises = self._compute_embedding_surprises(token_embeddings)
             logger.debug("Using embedding-based surprise calculation (O(n))")
         else:
-            raise ValueError(
-                "token_embeddings required for embedding-based surprise calculation"
-            )
+            raise ValueError("token_embeddings required for embedding-based surprise calculation")
 
         boundaries = [0]  # Start with first token
 
@@ -122,7 +120,8 @@ class SurpriseSegmenter:
             if surprises[t] > threshold:
                 boundaries.append(t)
                 logger.debug(
-                    f"Boundary at token {t} (surprise={surprises[t]:.2f}, threshold={threshold:.2f})"
+                    f"Boundary at token {t} "
+                    f"(surprise={surprises[t]:.2f}, threshold={threshold:.2f})"
                 )
 
         # Add final boundary
@@ -134,11 +133,7 @@ class SurpriseSegmenter:
         )
 
         # Apply boundary refinement if enabled (Algorithm 1 from paper)
-        if (
-            self.enable_refinement
-            and token_embeddings is not None
-            and len(boundaries) > 2
-        ):
+        if self.enable_refinement and token_embeddings is not None and len(boundaries) > 2:
             logger.debug(
                 f"Applying {self.refinement_metric} refinement to {len(boundaries)} boundaries..."
             )
@@ -157,8 +152,8 @@ class SurpriseSegmenter:
         token_embeddings: np.ndarray,
         window_size: int = 5,
         min_segment_length: int = 20,
-        surprise_threshold: Optional[float] = None,
-    ) -> List[int]:
+        surprise_threshold: float | None = None,
+    ) -> list[int]:
         """
         O(n) linear complexity segmentation using coherence-based boundaries.
 
@@ -188,9 +183,7 @@ class SurpriseSegmenter:
         candidate_boundaries = self._find_local_minima_linear(coherence_scores)
 
         # Step 3: Compute depth scores (O(n))
-        depth_scores = self._compute_depth_linear(
-            coherence_scores, candidate_boundaries
-        )
+        depth_scores = self._compute_depth_linear(coherence_scores, candidate_boundaries)
 
         # Step 4: Apply threshold (O(n))
         if surprise_threshold is None:
@@ -202,21 +195,17 @@ class SurpriseSegmenter:
                 surprise_threshold = 0.0
 
         boundaries = [0]
-        for idx, depth in zip(candidate_boundaries, depth_scores):
+        for idx, depth in zip(candidate_boundaries, depth_scores, strict=True):
             if depth > surprise_threshold and idx >= min_segment_length:
                 boundaries.append(idx)
 
         # Step 5: Enforce minimum segment length (O(n))
-        boundaries = self._enforce_min_length_linear(
-            boundaries, n_tokens, min_segment_length
-        )
+        boundaries = self._enforce_min_length_linear(boundaries, n_tokens, min_segment_length)
 
         if boundaries[-1] != n_tokens - 1:
             boundaries.append(n_tokens - 1)
 
-        logger.info(
-            f"Linear segmentation found {len(boundaries)} boundaries (O(n) method)"
-        )
+        logger.info(f"Linear segmentation found {len(boundaries)} boundaries (O(n) method)")
         return boundaries
 
     # ========================
@@ -267,9 +256,7 @@ class SurpriseSegmenter:
 
         return surprises
 
-    def _compute_coherence_linear(
-        self, embeddings: np.ndarray, window_size: int
-    ) -> np.ndarray:
+    def _compute_coherence_linear(self, embeddings: np.ndarray, window_size: int) -> np.ndarray:
         """
         Compute coherence between adjacent blocks. O(n) complexity.
 
@@ -300,7 +287,7 @@ class SurpriseSegmenter:
             return 0.0
         return np.dot(a, b) / (norm_a * norm_b)
 
-    def _find_local_minima_linear(self, scores: np.ndarray) -> List[int]:
+    def _find_local_minima_linear(self, scores: np.ndarray) -> list[int]:
         """
         Find local minima in coherence scores. O(n) complexity.
 
@@ -314,8 +301,8 @@ class SurpriseSegmenter:
         return minima
 
     def _compute_depth_linear(
-        self, coherence_scores: np.ndarray, candidate_boundaries: List[int]
-    ) -> List[float]:
+        self, coherence_scores: np.ndarray, candidate_boundaries: list[int]
+    ) -> list[float]:
         """
         Compute depth score for each boundary. O(n) complexity.
 
@@ -348,8 +335,8 @@ class SurpriseSegmenter:
         return depth_scores
 
     def _enforce_min_length_linear(
-        self, boundaries: List[int], n_tokens: int, min_length: int
-    ) -> List[int]:
+        self, boundaries: list[int], n_tokens: int, min_length: int
+    ) -> list[int]:
         """
         Remove boundaries creating segments shorter than min_length. O(n) complexity.
 
@@ -409,9 +396,9 @@ class SurpriseSegmenter:
     def _refine_boundaries(
         self,
         token_embeddings: np.ndarray,
-        boundaries: List[int],
+        boundaries: list[int],
         metric: str = "modularity",
-    ) -> List[int]:
+    ) -> list[int]:
         """
         Refine event boundaries using graph-theoretic metrics (Algorithm 1).
 
@@ -533,9 +520,7 @@ class SurpriseSegmenter:
 
         return best_position
 
-    def _optimize_conductance(
-        self, adjacency: np.ndarray, alpha: int, beta: int
-    ) -> int:
+    def _optimize_conductance(self, adjacency: np.ndarray, alpha: int, beta: int) -> int:
         r"""
         Find boundary position that minimizes conductance (Equation 4).
 

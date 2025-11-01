@@ -67,9 +67,7 @@ class TestSQFixed:
         count = store.count()
         print(f"Store count: {count}, Expected: 1000")
         print(f"Is trained: {store.is_trained}")
-        print(
-            f"Training vectors buffered: {sum(v.shape[0] for v in store.training_vectors)}"
-        )
+        print(f"Training vectors buffered: {sum(v.shape[0] for v in store.training_vectors)}")
         assert count == 1000
 
         # Search
@@ -239,9 +237,7 @@ class TestSQFixed:
             print("✓ Normalization test passed")
             print(f"  - Query-self distance: {distances[0]:.4f}")
             # After normalization, cosine similarity should be ~1.0 (distance ~0.0)
-            assert distances[0] > 0.95, (
-                "Self-similarity should be high after normalization"
-            )
+            assert distances[0] > 0.95, "Self-similarity should be high after normalization"
 
     def test_persistence(self, temp_storage, small_dataset):
         """Test index save/load persistence."""

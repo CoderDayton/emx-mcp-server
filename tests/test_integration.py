@@ -1,13 +1,14 @@
 """Integration tests for embedding-based EM-LLM segmentation."""
 
-import pytest
+import sys
 import time
 from pathlib import Path
-import sys
+
+import pytest
 
 from emx_mcp.embeddings.encoder import EmbeddingEncoder
-from emx_mcp.memory.segmentation import SurpriseSegmenter
 from emx_mcp.memory.project_manager import ProjectMemoryManager
+from emx_mcp.memory.segmentation import SurpriseSegmenter
 
 # Add project root to path for imports
 project_root = Path(__file__).parent.parent
@@ -66,9 +67,7 @@ class TestIntegration:
             print(f"  Found {num_events} events for {len(tokens)} tokens")
 
     @pytest.mark.asyncio
-    async def test_embedding_vs_placeholder_comparison(
-        self, encoder, segmenter, sample_tokens
-    ):
+    async def test_embedding_vs_placeholder_comparison(self, encoder, segmenter, sample_tokens):
         """Compare embedding-based segmentation with different gamma values."""
         tokens = sample_tokens["meeting_transcript"]
 
@@ -158,9 +157,7 @@ class TestIntegration:
         assert num_events >= 1
 
     @pytest.mark.asyncio
-    async def test_refinement_improves_boundaries(
-        self, encoder, segmenter, sample_tokens
-    ):
+    async def test_refinement_improves_boundaries(self, encoder, segmenter, sample_tokens):
         """Test that boundary refinement actually improves results."""
         tokens = sample_tokens["coding_session"]
 
@@ -201,9 +198,7 @@ class TestIntegration:
         context_windows = [3, 5, 10, 15]
 
         for window in context_windows:
-            embeddings = encoder.encode_tokens_with_context(
-                tokens, context_window=window
-            )
+            embeddings = encoder.encode_tokens_with_context(tokens, context_window=window)
 
             boundaries = segmenter.identify_boundaries(
                 tokens=tokens, gamma=1.0, token_embeddings=embeddings
@@ -240,9 +235,7 @@ class TestIntegration:
 
         # Benchmark full segmentation
         start_time = time.time()
-        _ = segmenter.identify_boundaries(
-            tokens=tokens, gamma=1.0, token_embeddings=embeddings
-        )
+        _ = segmenter.identify_boundaries(tokens=tokens, gamma=1.0, token_embeddings=embeddings)
         segmentation_time = time.time() - start_time
 
         total_time = embedding_time + surprise_time + adjacency_time + segmentation_time
@@ -265,9 +258,7 @@ class TestIntegration:
         # Test with very repetitive tokens
         repetitive_tokens = ["word"] * 15
 
-        embeddings = encoder.encode_tokens_with_context(
-            repetitive_tokens, context_window=3
-        )
+        embeddings = encoder.encode_tokens_with_context(repetitive_tokens, context_window=3)
         boundaries = segmenter.identify_boundaries(
             tokens=repetitive_tokens, gamma=1.0, token_embeddings=embeddings
         )
@@ -278,18 +269,14 @@ class TestIntegration:
         # Test with very diverse tokens
         diverse_tokens = [f"token_{i}" for i in range(15)]
 
-        embeddings = encoder.encode_tokens_with_context(
-            diverse_tokens, context_window=3
-        )
+        embeddings = encoder.encode_tokens_with_context(diverse_tokens, context_window=3)
         boundaries = segmenter.identify_boundaries(
             tokens=diverse_tokens, gamma=1.0, token_embeddings=embeddings
         )
 
         # Should also handle diverse sequences
         assert len(boundaries) >= 2
-        assert len(boundaries) <= len(
-            diverse_tokens
-        )  # Can't have more boundaries than tokens
+        assert len(boundaries) <= len(diverse_tokens)  # Can't have more boundaries than tokens
 
     @pytest.mark.asyncio
     async def test_project_manager_integration(self, mock_project_config):
@@ -354,15 +341,16 @@ class TestIntegration:
 
         # Should complete within reasonable time (O(n) is much faster)
         assert total_time < 30.0, f"Test took {total_time:.3f}s (expected < 30s)"
-        assert (
-            len(boundaries) >= 2
-        ), f"Found {len(boundaries)} boundaries (expected >= 2)"
+        assert len(boundaries) >= 2, f"Found {len(boundaries)} boundaries (expected >= 2)"
 
         # Should find topic transitions (3 expected, but allow 1-5 for robustness)
         # Boundary detection can be sensitive to embedding similarity and window size
-        assert (
-            1 <= events_found <= 6
-        ), f"Found {events_found} events (expected 1-6). This may indicate window_size=10 is too large for this sequence, or embeddings are too similar between topics. Boundaries: {len(boundaries)}"
+        assert 1 <= events_found <= 6, (
+            f"Found {events_found} events (expected 1-6). "
+            f"This may indicate window_size=10 is too large for this "
+            f"sequence, or embeddings are too similar between topics. "
+            f"Boundaries: {len(boundaries)}"
+        )
 
     @pytest.mark.asyncio
     async def test_stream_pipelined_storage_with_manager(self, mock_project_config):
@@ -530,8 +518,7 @@ class TestIntegration:
             ]
             * 166,
             # References + Appendix (1000 tokens)
-            ["references", "bibliography", "appendix", "supplementary", "materials"]
-            * 200,
+            ["references", "bibliography", "appendix", "supplementary", "materials"] * 200,
         ]
 
         all_tokens = []
@@ -546,12 +533,11 @@ class TestIntegration:
         # Step 1: Generate embeddings
         print("\n[4/6] Generating embeddings (batched)...")
         start_time = time.time()
-        embeddings = manager.encoder.encode_tokens_with_context(
-            all_tokens, context_window=10
-        )
+        embeddings = manager.encoder.encode_tokens_with_context(all_tokens, context_window=10)
         embedding_time = time.time() - start_time
         print(
-            f"  ✓ Embedding generation: {embedding_time:.2f}s ({len(all_tokens) / embedding_time:.0f} tokens/s)"
+            f"  ✓ Embedding generation: {embedding_time:.2f}s "
+            f"({len(all_tokens) / embedding_time:.0f} tokens/s)"
         )
         print(f"  - Embedding shape: {embeddings.shape}")
 
@@ -631,11 +617,13 @@ class TestIntegration:
             )
             retrieval_time = time.time() - start_time
 
-            for i, ((query_text, expected_section), retrieval_result) in enumerate(
-                zip(test_queries, batch_results)
-            ):
+            for i, (
+                (query_text, _expected_section),
+                retrieval_result,
+            ) in enumerate(zip(test_queries, batch_results, strict=True)):
                 print(
-                    f"    Batch query {i + 1}: '{query_text}' -> {len(retrieval_result.get('events', []))} results"
+                    f"    Batch query {i + 1}: '{query_text}' -> "
+                    f"{len(retrieval_result.get('events', []))} results"
                 )
 
                 # Verify retrieval worked
@@ -691,9 +679,7 @@ class TestIntegration:
         print("\n  Memory Statistics:")
         print(f"    Total events: {manager.project_store.event_count()}")
         print(f"    Total tokens: {manager.project_store.metadata['total_tokens']}")
-        print(
-            f"    Offloaded events: {manager.project_store.metadata.get('offloaded_events', 0)}"
-        )
+        print(f"    Offloaded events: {manager.project_store.metadata.get('offloaded_events', 0)}")
 
         # Cleanup
         stream_manager.synchronize_all()
@@ -754,8 +740,6 @@ class TestIntegration:
 
         print("\n  Rapid stream usage (5 events, 2-stream pool):")
         print(f"    Total time: {total_time:.4f}s")
-        print(
-            f"    Events succeeded: {len([r for r in results if r['status'] == 'added'])}/5"
-        )
+        print(f"    Events succeeded: {len([r for r in results if r['status'] == 'added'])}/5")
 
         stream_manager.synchronize_all()

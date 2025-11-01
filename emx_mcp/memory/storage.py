@@ -14,20 +14,21 @@ storage.py calls add_vectors with:
 - metadata: [{...}] - ONE metadata dict
 """
 
+import json
+import logging
+import os
+import tempfile
+import time
 from collections import deque
 from pathlib import Path
-from typing import List, Dict, Deque, Optional, TYPE_CHECKING
-import json
-import time
-import logging
-import numpy as np
-import tempfile
-import os
+from typing import TYPE_CHECKING, Optional
 
-from emx_mcp.storage.vector_store import VectorStore
-from emx_mcp.storage.graph_store import GraphStore
-from emx_mcp.storage.disk_manager import DiskManager
+import numpy as np
+
 from emx_mcp.models.events import EpisodicEvent
+from emx_mcp.storage.disk_manager import DiskManager
+from emx_mcp.storage.graph_store import GraphStore
+from emx_mcp.storage.vector_store import VectorStore
 
 if TYPE_CHECKING:
     from emx_mcp.gpu.stream_manager import StreamManager
@@ -49,12 +50,12 @@ class HierarchicalMemoryStore:
         self.config = config
 
         # Tier 1: Initial tokens
-        self.initial_tokens: List[str] = []
+        self.initial_tokens: list[str] = []
         self.n_init = config["memory"]["n_init"]
 
         # Tier 2: Local context
         self.n_local = config["memory"]["n_local"]
-        self.local_context: Deque[str] = deque(maxlen=self.n_local)
+        self.local_context: deque[str] = deque(maxlen=self.n_local)
 
         # Tier 3: Episodic memory (FULLY INTEGRATED)
         vector_path = self.storage_path / "vector_index"
@@ -90,8 +91,7 @@ class HierarchicalMemoryStore:
             use_sq=config["storage"].get("use_sq", True),
             sq_bits=config["storage"].get("sq_bits", 8),
             expected_vector_count=expected_vectors,
-            min_training_size=min_training_size
-            or config["storage"].get("min_training_size"),
+            min_training_size=min_training_size or config["storage"].get("min_training_size"),
         )
 
         self.graph_store = GraphStore(str(graph_path))
@@ -105,7 +105,7 @@ class HierarchicalMemoryStore:
         self.events_path.mkdir(exist_ok=True)
 
         # Event cache (in-memory for fast access)
-        self.event_cache: Dict[str, EpisodicEvent] = {}
+        self.event_cache: dict[str, EpisodicEvent] = {}
         self.max_cache_size = 1000
 
         # GPU stream manager (optional for pipelined operations)
@@ -115,7 +115,7 @@ class HierarchicalMemoryStore:
         self.metadata_path = self.storage_path / "metadata.json"
 
         # Track previous event ID for temporal linking
-        self.last_event_id: Optional[str] = None
+        self.last_event_id: str | None = None
         self._load_metadata()
 
         logger.info(f"HierarchicalMemoryStore initialized at {storage_path}")
@@ -129,7 +129,7 @@ class HierarchicalMemoryStore:
     def _load_metadata(self):
         """Load or initialize metadata."""
         if self.metadata_path.exists():
-            with open(self.metadata_path, "r") as f:
+            with open(self.metadata_path) as f:
                 self.metadata = json.load(f)
         else:
             self.metadata = {
@@ -173,9 +173,7 @@ class HierarchicalMemoryStore:
             surprise_scores=surprise_scores,
         )
 
-    def _store_event_disk_or_json(
-        self, event: EpisodicEvent
-    ) -> tuple[bool, str | None]:
+    def _store_event_disk_or_json(self, event: EpisodicEvent) -> tuple[bool, str | None]:
         """
         Store event to disk or JSON file.
 
@@ -185,9 +183,7 @@ class HierarchicalMemoryStore:
 
         if should_offload := self.disk_manager.should_offload(len(event.tokens)):
             self.disk_manager.offload_event(event.event_id, event.to_dict())
-            logger.info(
-                f"Event {event.event_id} offloaded to disk ({len(event.tokens)} tokens)"
-            )
+            logger.info(f"Event {event.event_id} offloaded to disk ({len(event.tokens)} tokens)")
             return should_offload, None
 
         # Atomic JSON write
@@ -221,9 +217,7 @@ class HierarchicalMemoryStore:
             )
             del self.event_cache[oldest]
 
-    def _add_to_vector_store(
-        self, event_id: str, embeddings: list, metadata: dict
-    ) -> dict:
+    def _add_to_vector_store(self, event_id: str, embeddings: list, metadata: dict) -> dict:
         """Add embeddings to vector store."""
         if not embeddings:
             return {"status": "no_embeddings"}
@@ -396,7 +390,7 @@ class HierarchicalMemoryStore:
 
         event_file = self.events_path / f"{event_id}.json"
         if event_file.exists():
-            with open(event_file, "r") as f:
+            with open(event_file) as f:
                 event_data = json.load(f)
             event = EpisodicEvent.from_dict(event_data)
             self.event_cache[event_id] = event
@@ -442,14 +436,12 @@ class HierarchicalMemoryStore:
             "total_events": self.metadata["event_count"],
         }
 
-    def search_events(
-        self, query_embedding: np.ndarray, k: int = 10
-    ) -> list[EpisodicEvent]:
+    def search_events(self, query_embedding: np.ndarray, k: int = 10) -> list[EpisodicEvent]:
         """Search for similar events and retrieve full objects."""
         event_ids, distances, metadata = self.vector_store.search(query_embedding, k)
 
         events = []
-        for event_id, distance in zip(event_ids, distances):
+        for event_id, _distance in zip(event_ids, distances, strict=True):
             try:
                 event = self.get_event(event_id)
                 events.append(event)
@@ -460,7 +452,7 @@ class HierarchicalMemoryStore:
 
     def search_events_batch(
         self, query_embeddings: np.ndarray, k: int = 10
-    ) -> List[List[EpisodicEvent]]:
+    ) -> list[list[EpisodicEvent]]:
         """
         Batch search for similar events and retrieve full objects.
 
@@ -475,9 +467,9 @@ class HierarchicalMemoryStore:
         batch_results = self.vector_store.search_batch(query_embeddings, k)
 
         all_events = []
-        for event_ids, distances, metadata in batch_results:
+        for event_ids, distances, _metadata in batch_results:
             events = []
-            for event_id, distance in zip(event_ids, distances):
+            for event_id, _distance in zip(event_ids, distances, strict=True):
                 try:
                     event = self.get_event(event_id)
                     events.append(event)
@@ -500,9 +492,7 @@ class HierarchicalMemoryStore:
             return result["removed_count"]
         return 0
 
-    def retrain_index(
-        self, force: bool = False, expected_vector_count: Optional[int] = None
-    ) -> dict:
+    def retrain_index(self, force: bool = False, expected_vector_count: int | None = None) -> dict:
         """Retrain IVF index with optional expected vector count for optimal nlist."""
         return self.vector_store.retrain(force, expected_vector_count)
 

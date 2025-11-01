@@ -190,9 +190,7 @@ class E2EBenchmark:
             vs = storage.vector_store
 
             n_vectors = vs.index.ntotal if vs.is_trained else 0
-            optimal_nlist = (
-                vs._calculate_optimal_nlist(n_vectors) if n_vectors > 0 else vs.nlist
-            )
+            optimal_nlist = vs._calculate_optimal_nlist(n_vectors) if n_vectors > 0 else vs.nlist
 
             # Calculate nlist_ratio, handling None values
             nlist_ratio = 1.0
@@ -244,13 +242,13 @@ class E2EBenchmark:
         self.manager.project_store.vector_store.expected_vector_count = expected_vectors
         self.manager.project_store.vector_store.min_training_size = min_training
         self.manager.project_store.vector_store.nlist = (
-            self.manager.project_store.vector_store._calculate_optimal_nlist(
-                expected_vectors
-            )
+            self.manager.project_store.vector_store._calculate_optimal_nlist(expected_vectors)
         )
 
         print(
-            f"📊 Estimated {expected_vectors:,} vectors → nlist={self.manager.project_store.vector_store.nlist}, training at {min_training:,}"
+            f"📊 Estimated {expected_vectors:,} vectors → "
+            f"nlist={self.manager.project_store.vector_store.nlist}, "
+            f"training at {min_training:,}"
         )
 
         # Segmentation (O(n) surprise-based boundaries)
@@ -265,10 +263,7 @@ class E2EBenchmark:
             "time_sec": segment_time,
         }
 
-        print(
-            f"Segmented: {seg_result['num_events']} events "
-            f"in {segment_time * 1000:.2f}ms"
-        )
+        print(f"Segmented: {seg_result['num_events']} events in {segment_time * 1000:.2f}ms")
 
         # Add events (embedding + indexing)
         storage_start = time.perf_counter()
@@ -290,9 +285,7 @@ class E2EBenchmark:
         self.metrics["timings"]["remember_total_sec"] = time.perf_counter() - start_time
 
         mem_after = self.measure_memory_usage()
-        self.metrics["memory"]["remember_delta_mb"] = (
-            mem_after["rss_mb"] - mem_before["rss_mb"]
-        )
+        self.metrics["memory"]["remember_delta_mb"] = mem_after["rss_mb"] - mem_before["rss_mb"]
 
         print(f"Stored: {len(event_ids)} events in {storage_time:.2f}s")
         print(f" Memory delta: +{self.metrics['memory']['remember_delta_mb']:.1f} MB")
@@ -391,10 +384,8 @@ class E2EBenchmark:
         batch_time = time.perf_counter() - batch_start
 
         # Process results
-        amortized_query_time = (encode_time + batch_time) / len(
-            queries
-        )  # Amortized time
-        for i, (query, retrieval_result) in enumerate(zip(queries, batch_results)):
+        amortized_query_time = (encode_time + batch_time) / len(queries)  # Amortized time
+        for i, (query, retrieval_result) in enumerate(zip(queries, batch_results, strict=True)):
             results.append(
                 {
                     "query": f"{query[:50]}...",
@@ -444,15 +435,9 @@ class E2EBenchmark:
             f"in {self.metrics['segmentation']['time_sec'] * 1000:.2f}ms"
         )
         print(f"Storage (embed + index): {self.metrics['timings']['storage_sec']:.2f}s")
-        print(
-            f"E2E Remember latency: {self.metrics['timings']['remember_total_sec']:.2f}s"
-        )
-        print(
-            f"Memory footprint delta: +{self.metrics['memory']['remember_delta_mb']:.1f} MB"
-        )
-        print(
-            f"Retrieval (avg): {self.metrics['retrieval']['avg_time_ms']:.2f}ms per query"
-        )
+        print(f"E2E Remember latency: {self.metrics['timings']['remember_total_sec']:.2f}s")
+        print(f"Memory footprint delta: +{self.metrics['memory']['remember_delta_mb']:.1f} MB")
+        print(f"Retrieval (avg): {self.metrics['retrieval']['avg_time_ms']:.2f}ms per query")
 
         print(f"\nDevice: {self.metrics['config']['device']}")
         print(f"Batch size: {self.metrics['config']['batch_size']}")

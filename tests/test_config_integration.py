@@ -101,6 +101,4 @@ class TestConfigIntegration:
 
             # Check VectorStore received config
             assert store.vector_store.nprobe == config["storage"]["nprobe"]
-            assert (
-                store.vector_store.dimension == config["storage"]["vector_dim"] or 384
-            )
+            assert store.vector_store.dimension == config["storage"]["vector_dim"] or 384

@@ -1,18 +1,19 @@
 """Project-based memory manager with IVF-indexed storage + O(n) linear segmentation only."""
 
-import time
+import logging
 import tarfile
-import numpy as np
+import time
 import uuid
 from pathlib import Path
-from typing import Optional, Any, Dict, List, Union
-import logging
+from typing import Any
+
+import numpy as np
 from numpy.typing import NDArray
 
-from emx_mcp.memory.storage import HierarchicalMemoryStore
-from emx_mcp.memory.segmentation import SurpriseSegmenter
-from emx_mcp.memory.retrieval import CachedBatchRetrieval
 from emx_mcp.embeddings.encoder import EmbeddingEncoder
+from emx_mcp.memory.retrieval import CachedBatchRetrieval
+from emx_mcp.memory.segmentation import SurpriseSegmenter
+from emx_mcp.memory.storage import HierarchicalMemoryStore
 from emx_mcp.utils.hardware import enrich_config_with_hardware
 
 logger = logging.getLogger(__name__)
@@ -61,15 +62,18 @@ class ProjectMemoryManager:
             elif configured_dim != actual_dim:
                 # Explicit dimension set but mismatches model
                 error_msg = (
-                    f"Vector dimension mismatch: EMX_STORAGE_VECTOR_DIM={configured_dim} "
-                    f"but model '{enriched_config['model']['name']}' outputs {actual_dim}-dimensional vectors.\n"
+                    f"Vector dimension mismatch: "
+                    f"EMX_STORAGE_VECTOR_DIM={configured_dim} "
+                    f"but model '{enriched_config['model']['name']}' "
+                    f"outputs {actual_dim}-dimensional vectors.\n"
                     f"\n"
                     f"Common model dimensions:\n"
                     f" - all-MiniLM-L6-v2: 384\n"
                     f" - all-mpnet-base-v2: 768\n"
                     f" - paraphrase-multilingual-MiniLM-L12-v2: 384\n"
                     f"\n"
-                    f"Fix: Set EMX_STORAGE_VECTOR_DIM={actual_dim} or remove it to enable auto-detection.\n"
+                    f"Fix: Set EMX_STORAGE_VECTOR_DIM={actual_dim} or remove it "
+                    f"to enable auto-detection.\n"
                     f"See: ENVIRONMENT_VARIABLES.md#emx_storage_vector_dim"
                 )
 
@@ -77,9 +81,7 @@ class ProjectMemoryManager:
                 raise ValueError(error_msg)
 
         except ImportError as e:
-            logger.error(
-                "Embedding encoder not available (sentence-transformers not installed)"
-            )
+            logger.error("Embedding encoder not available (sentence-transformers not installed)")
 
             raise ImportError(
                 "sentence-transformers required. Install with: pip install sentence-transformers"
@@ -112,7 +114,7 @@ class ProjectMemoryManager:
         self.retrieval = CachedBatchRetrieval(self.project_store, enriched_config)
 
         # Batch encoding buffer for event aggregation (2-3x faster ingestion)
-        self.pending_events: List[Dict[str, Any]] = []
+        self.pending_events: list[dict[str, Any]] = []
         self.batch_event_threshold = enriched_config.get("memory", {}).get(
             "batch_event_threshold", 10
         )
@@ -197,17 +199,15 @@ class ProjectMemoryManager:
         use_contiguity: bool,
     ) -> dict:
         """Retrieve relevant memories via cached two-stage retrieval."""
-        return self.retrieval.retrieve(
-            query_embedding, k_similarity, k_contiguity, use_contiguity
-        )
+        return self.retrieval.retrieve(query_embedding, k_similarity, k_contiguity, use_contiguity)
 
     def retrieve_memories_batch(
         self,
-        query_embeddings: Union[np.ndarray, List[List[float]]],
+        query_embeddings: np.ndarray | list[list[float]],
         k_similarity: int,
         k_contiguity: int,
         use_contiguity: bool,
-    ) -> List[dict]:
+    ) -> list[dict]:
         """
         Retrieve memories for multiple queries with batch optimization.
 
@@ -232,11 +232,11 @@ class ProjectMemoryManager:
 
     def retrieve_batch(
         self,
-        query_embeddings: Union[np.ndarray, List[List[float]]],
+        query_embeddings: np.ndarray | list[list[float]],
         k_similarity: int,
         k_contiguity: int,
         use_contiguity: bool,
-    ) -> List[dict]:
+    ) -> list[dict]:
         """
         Direct batch retrieval interface.
 
@@ -269,8 +269,8 @@ class ProjectMemoryManager:
     def add_event(
         self,
         tokens: list,
-        embeddings: Optional[NDArray[np.float32]] = None,
-        metadata: Optional[dict] = None,
+        embeddings: NDArray[np.float32] | None = None,
+        metadata: dict | None = None,
         force_flush: bool = False,
     ) -> dict:
         """
@@ -309,9 +309,7 @@ class ProjectMemoryManager:
         )
 
         # Check if we should flush the buffer
-        should_flush = (
-            len(self.pending_events) >= self.batch_event_threshold or force_flush
-        )
+        should_flush = len(self.pending_events) >= self.batch_event_threshold or force_flush
 
         if should_flush:
             flush_result = self._flush_pending_events()
@@ -353,9 +351,7 @@ class ProjectMemoryManager:
             event_boundaries.append(len(all_tokens))
 
         # Single batch encoding pass (KEY OPTIMIZATION)
-        logger.info(
-            f"Batch encoding {num_events} events ({len(all_tokens)} tokens) in single pass"
-        )
+        logger.info(f"Batch encoding {num_events} events ({len(all_tokens)} tokens) in single pass")
         all_embeddings = self.encoder.encode_tokens_with_context(
             all_tokens, context_window=self.config["memory"]["context_window"]
         )
@@ -409,30 +405,22 @@ class ProjectMemoryManager:
         """Remove events from project memory."""
         return self.project_store.remove_events(event_ids)
 
-    def retrain_index(
-        self, force: bool = False, expected_vector_count: Optional[int] = None
-    ) -> dict:
+    def retrain_index(self, force: bool = False, expected_vector_count: int | None = None) -> dict:
         """Retrain IVF index with optional expected vector count for optimal nlist."""
         return self.project_store.retrain_index(force, expected_vector_count)
 
-    def optimize_memory(
-        self, prune_old_events: bool, compress_embeddings: bool
-    ) -> dict:
+    def optimize_memory(self, prune_old_events: bool, compress_embeddings: bool) -> dict:
         """Optimize memory storage."""
-        results: Dict[str, List[Dict[str, Any]]] = {"optimizations": []}
+        results: dict[str, list[dict[str, Any]]] = {"optimizations": []}
 
         if prune_old_events:
             pruned = self.project_store.prune_least_accessed(limit=1000)
 
-            results["optimizations"].append(
-                {"type": "pruning", "events_removed": pruned}
-            )
+            results["optimizations"].append({"type": "pruning", "events_removed": pruned})
 
         if compress_embeddings:
             # Future: implement PQ compression
-            results["optimizations"].append(
-                {"type": "compression", "status": "not_implemented"}
-            )
+            results["optimizations"].append({"type": "compression", "status": "not_implemented"})
 
         return results
 
@@ -497,7 +485,7 @@ class ProjectMemoryManager:
         """
         return self.encoder.get_query_embedding(query)
 
-    def encode_queries_batch(self, queries: List[str]) -> NDArray[np.float32]:
+    def encode_queries_batch(self, queries: list[str]) -> NDArray[np.float32]:
         """
         Encode multiple query strings for batch retrieval.
 
@@ -511,9 +499,11 @@ class ProjectMemoryManager:
             Batch query embeddings array (num_queries, embedding_dim)
 
         Example:
-            >>> queries = ["What is Python?", "How to optimize code?", "Debug memory leaks?"]
-            >>> embeddings = manager.encode_queries_batch(queries)  # (3, 384)
-            >>> results = manager.retrieve_batch(embeddings, k_similarity=10, k_contiguity=5, use_contiguity=True)
+            >>> queries = ["What is Python?", "How to optimize code?"]
+            >>> embeddings = manager.encode_queries_batch(queries)
+            >>> results = manager.retrieve_batch(
+            ...     embeddings, k_similarity=10, k_contiguity=5, use_contiguity=True
+            ... )
         """
         if not queries:
             return np.array([])

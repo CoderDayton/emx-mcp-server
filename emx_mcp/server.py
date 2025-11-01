@@ -3,19 +3,31 @@
 import os
 import sys
 from pathlib import Path
-from typing import Optional, Any
+from typing import Any
+
 from fastmcp import FastMCP
+
 from emx_mcp.memory.project_manager import ProjectMemoryManager
-from emx_mcp.utils.config import load_config
-from emx_mcp.utils.logging import setup_logging
 from emx_mcp.tools import (
-    store_memory as store_memory_impl,
-    recall_memories as recall_memories_impl,
-    remove_memories as remove_memories_impl,
     manage_memory as manage_memory_impl,
-    transfer_memory as transfer_memory_impl,
+)
+from emx_mcp.tools import (
+    recall_memories as recall_memories_impl,
+)
+from emx_mcp.tools import (
+    remove_memories as remove_memories_impl,
+)
+from emx_mcp.tools import (
     search_memory_batch as search_memory_batch_impl,
 )
+from emx_mcp.tools import (
+    store_memory as store_memory_impl,
+)
+from emx_mcp.tools import (
+    transfer_memory as transfer_memory_impl,
+)
+from emx_mcp.utils.config import load_config
+from emx_mcp.utils.logging import setup_logging
 
 mcp = FastMCP("EMX Memory MCP Server", version="1.0.0")
 
@@ -30,14 +42,10 @@ if config.get("storage", {}).get("expected_total_tokens"):
 
 # Detect project path from config (already validated)
 project_path = config.get("project_path", os.getcwd())
-global_path = config.get(
-    "global_path", str(Path.home() / ".emx-mcp" / "global_memories")
-)
+global_path = config.get("global_path", str(Path.home() / ".emx-mcp" / "global_memories"))
 
 # Initialize memory manager
-manager = ProjectMemoryManager(
-    project_path=project_path, global_path=global_path, config=config
-)
+manager = ProjectMemoryManager(project_path=project_path, global_path=global_path, config=config)
 
 logger.info(f"Server started - Project: {project_path}")
 logger.info(f"Global memory: {global_path}")
@@ -98,7 +106,9 @@ def get_memory_status() -> dict:
             else (
                 "Set EMX_EXPECTED_TOKENS or use expected_tokens parameter for optimal nlist"
                 if nlist_ratio == 0
-                else f"Consider retraining with expected_tokens hint (current nlist {current_nlist}/{optimal_nlist} = {nlist_ratio:.1%})"
+                else f"Consider retraining with expected_tokens hint "
+                f"(current nlist {current_nlist}/{optimal_nlist} = "
+                f"{nlist_ratio:.1%})"
             )
         ),
     }
@@ -107,10 +117,10 @@ def get_memory_status() -> dict:
 @mcp.tool()
 def store_memory(
     content: str,
-    metadata: Optional[dict[Any, Any]] = None,
+    metadata: dict[Any, Any] | None = None,
     auto_segment: bool = True,
     gamma: float = 1.0,
-    expected_tokens: Optional[int] = None,
+    expected_tokens: int | None = None,
 ) -> dict:
     """
     Store new information into project memory with automatic segmentation.
@@ -134,9 +144,7 @@ def store_memory(
     Returns:
         Event IDs created, segmentation info, and index health status
     """
-    return store_memory_impl(
-        manager, content, metadata, auto_segment, gamma, expected_tokens
-    )
+    return store_memory_impl(manager, content, metadata, auto_segment, gamma, expected_tokens)
 
 
 @mcp.tool()
@@ -160,7 +168,8 @@ def recall_memories(
     Check index health with manage_memory(action="stats").
 
     Args:
-        query: Natural language query (e.g., "debugging React hooks", "meeting notes about Q3 goals")
+        query: Natural language query (e.g., "debugging React hooks",
+            "meeting notes about Q3 goals")
         scope: Search scope - "project" (current codebase), "global" (all projects), "both"
         format: Response format - "concise" (IDs + snippets) or "detailed" (full events)
         k: Number of relevant events to retrieve (default: 10)
@@ -201,7 +210,7 @@ def remove_memories(
 @mcp.tool()
 def manage_memory(
     action: str,
-    options: Optional[dict[Any, Any]] = None,
+    options: dict[Any, Any] | None = None,
 ) -> dict:
     """
     Administrative operations for memory system maintenance and diagnostics.
@@ -235,7 +244,7 @@ def transfer_memory(
     action: str,
     path: str,
     merge: bool = False,
-    expected_tokens: Optional[int] = None,
+    expected_tokens: int | None = None,
 ) -> dict:
     """
     Import or export project memory to/from portable archive files.

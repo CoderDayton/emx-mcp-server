@@ -1,7 +1,7 @@
 """Tool for memory system maintenance and diagnostics."""
 
-from typing import Optional, Any
 import logging
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 def manage_memory(
     manager,
     action: str,
-    options: Optional[dict[Any, Any]] = None,
+    options: dict[Any, Any] | None = None,
 ) -> dict:
     """
     Administrative operations for memory system maintenance and diagnostics.
@@ -82,7 +82,8 @@ def manage_memory(
             "recommendation": (
                 "Index optimal"
                 if nlist_ratio >= 0.85
-                else f"Consider retraining with expected_tokens hint (nlist {current_nlist}/{optimal_nlist} = {nlist_ratio:.1%})"
+                else f"Consider retraining with expected_tokens hint "
+                f"(nlist {current_nlist}/{optimal_nlist} = {nlist_ratio:.1%})"
             ),
         }
 
@@ -113,8 +114,9 @@ def manage_memory(
                 "training_threshold": "90%",
             },
             "recommendation": (
-                f"Set EMX_EXPECTED_TOKENS={expected_tokens} or pass expected_tokens={expected_tokens} "
-                f"to store_memory() for optimal nlist={optimal_nlist}"
+                f"Set EMX_EXPECTED_TOKENS={expected_tokens} or pass "
+                f"expected_tokens={expected_tokens} to store_memory() "
+                f"for optimal nlist={optimal_nlist}"
             ),
         }
 
@@ -129,9 +131,7 @@ def manage_memory(
             expected_vector_count = expected_events * 27
             logger.info(f"Retraining with expected {expected_vector_count} vectors")
 
-        result = manager.retrain_index(
-            force=force, expected_vector_count=expected_vector_count
-        )
+        result = manager.retrain_index(force=force, expected_vector_count=expected_vector_count)
 
         # Get updated index info
         index_info = manager.get_index_info()

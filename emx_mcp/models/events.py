@@ -1,8 +1,7 @@
 """Data models for episodic events."""
 
-from dataclasses import dataclass, field
-from typing import List, Optional, Dict
 import time
+from dataclasses import dataclass, field
 
 
 @dataclass
@@ -15,14 +14,14 @@ class EpisodicEvent:
     """
 
     event_id: str
-    tokens: List[str]
-    embeddings: List[List[float]]
-    boundaries: List[int]  # Token positions of event boundaries
+    tokens: list[str]
+    embeddings: list[list[float]]
+    boundaries: list[int]  # Token positions of event boundaries
     timestamp: float = field(default_factory=time.time)
-    metadata: Optional[Dict] = None
+    metadata: dict | None = None
 
     # Statistics
-    surprise_scores: Optional[List[float]] = None
+    surprise_scores: list[float] | None = None
     access_count: int = 0
 
     def __post_init__(self):
@@ -47,7 +46,7 @@ class EpisodicEvent:
         """Increment access counter."""
         self.access_count += 1
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         """Convert to dictionary for serialization."""
         return {
             "event_id": self.event_id,
@@ -61,7 +60,7 @@ class EpisodicEvent:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict) -> "EpisodicEvent":
+    def from_dict(cls, data: dict) -> "EpisodicEvent":
         """Create event from dictionary."""
         return cls(
             event_id=data["event_id"],
@@ -81,8 +80,8 @@ class EventBoundary:
 
     position: int  # Token position
     surprise_score: float
-    refined_position: Optional[int] = None
-    refinement_score: Optional[float] = None
+    refined_position: int | None = None
+    refinement_score: float | None = None
 
     @property
     def is_refined(self) -> bool:

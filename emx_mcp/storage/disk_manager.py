@@ -1,11 +1,11 @@
 """Disk offloading with memory-mapped file support."""
 
+import logging
 import mmap
-import pickle
+import pickle  # nosec B403 - Used only for internal data serialization, not untrusted input
 import struct
 from pathlib import Path
-from typing import Optional, Dict, Tuple, Any
-import logging
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -31,10 +31,8 @@ class DiskManager:
         self.offload_threshold = offload_threshold
 
         # Track offloaded events
-        self.offloaded_events: Dict[str, str] = {}  # event_id -> file_path
-        self.mmap_cache: Dict[
-            str, Tuple[mmap.mmap, Any]
-        ] = {}  # event_id -> (mmap, file_handle)
+        self.offloaded_events: dict[str, str] = {}  # event_id -> file_path
+        self.mmap_cache: dict[str, tuple[mmap.mmap, Any]] = {}  # event_id -> (mmap, file_handle)
         self.max_mmap_cache = 50  # Max open mmap files
 
         # Load existing offloaded events index
@@ -49,7 +47,7 @@ class DiskManager:
         if self.index_path.exists():
             import json
 
-            with open(self.index_path, "r") as f:
+            with open(self.index_path) as f:
                 self.offloaded_events = json.load(f)
 
     def _save_index(self):
@@ -103,7 +101,7 @@ class DiskManager:
         logger.info(f"Offloaded {event_id} to mmap file ({data_size} bytes)")
         return str(file_path)
 
-    def load_event(self, event_id: str, use_mmap: bool = True) -> Optional[dict]:
+    def load_event(self, event_id: str, use_mmap: bool = True) -> dict | None:
         """
         Load offloaded event from disk.
 
@@ -145,13 +143,15 @@ class DiskManager:
             # Read data
             mm.seek(data_offset)
             data_bytes = mm.read(data_size)
-            event_data = pickle.loads(data_bytes)
+            # Security: This pickle data is generated internally by our
+            # system, not from untrusted sources
+            event_data = pickle.loads(data_bytes)  # nosec B301 - Internal
 
             logger.debug(f"Loaded {event_id} from mmap cache")
             return event_data
 
         # Open new mmap with guaranteed cleanup on exception
-        fh = open(file_path, "r+b")
+        fh = open(file_path, "r+b")  # noqa: SIM115 - intentional for mmap caching
         try:
             mm = mmap.mmap(fh.fileno(), 0)
             try:
@@ -174,7 +174,11 @@ class DiskManager:
                 # Read data
                 mm.seek(data_offset)
                 data_bytes = mm.read(data_size)
-                event_data = pickle.loads(data_bytes)
+                # Security: pickle data is generated internally by our
+                # system, not from untrusted sources
+                event_data = pickle.loads(  # nosec B301 - Internal
+                    data_bytes
+                )
 
                 logger.debug(f"Loaded {event_id} from disk with mmap")
                 return event_data
@@ -197,7 +201,9 @@ class DiskManager:
             # Read data
             f.seek(data_offset)
             data_bytes = f.read(data_size)
-            event_data = pickle.loads(data_bytes)
+            # Security: pickle data is generated internally by our
+            # system, not from untrusted sources
+            event_data = pickle.loads(data_bytes)  # nosec B301 - Internal
 
         logger.debug("Loaded event from disk (direct I/O)")
         return event_data
@@ -271,5 +277,6 @@ class DiskManager:
             try:
                 mm.close()
                 fh.close()
-            except Exception:
-                pass
+            except Exception as e:
+                # Log cleanup failures during finalization (non-critical)
+                logger.debug(f"Error closing mmap during cleanup: {e}")

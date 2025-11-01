@@ -18,10 +18,9 @@ The solution:
 
 import json
 import logging
-import pickle
+import pickle  # nosec B403 - Used only for internal metadata serialization, not untrusted input
 import threading
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
 import faiss  # type: ignore[import-untyped]
 import numpy as np
@@ -86,14 +85,14 @@ class VectorStore:
         self,
         storage_path: str,
         dimension: int = 384,
-        nlist: Optional[int] = None,
+        nlist: int | None = None,
         nprobe: int = 16,
         use_gpu: bool = True,
         gpu_device_id: int = 0,
         use_sq: bool = True,
         sq_bits: int = 8,
-        expected_vector_count: Optional[int] = None,
-        min_training_size: Optional[int] = None,
+        expected_vector_count: int | None = None,
+        min_training_size: int | None = None,
     ):
         self.storage_path = Path(storage_path)
         self.storage_path.mkdir(parents=True, exist_ok=True)
@@ -112,13 +111,13 @@ class VectorStore:
         self.id_map_path = self.storage_path / "id_map.json"
 
         # CRITICAL: event_id → list of vector_ids (MULTIPLE vectors per event!)
-        self.event_id_to_vector_ids: Dict[str, List[int]] = {}
-        self.vector_id_to_event_id: Dict[int, str] = {}
+        self.event_id_to_vector_ids: dict[str, list[int]] = {}
+        self.vector_id_to_event_id: dict[int, str] = {}
         self.next_vector_id = 0
         self._id_map_lock = threading.Lock()
 
         self.is_trained = False
-        self.metadata: List[dict] = []
+        self.metadata: list[dict] = []
 
         # Training strategy configuration
         self.expected_vector_count = expected_vector_count
@@ -126,9 +125,7 @@ class VectorStore:
         # If expected count provided, use optimal nlist and train at 10% of expected
         if expected_vector_count:
             self.nlist = nlist or self._calculate_optimal_nlist(expected_vector_count)
-            self.min_training_size = min_training_size or max(
-                100, expected_vector_count // 10
-            )
+            self.min_training_size = min_training_size or max(100, expected_vector_count // 10)
             logger.info(
                 f"Expected {expected_vector_count} vectors → "
                 f"nlist={self.nlist}, min_training_size={self.min_training_size}"
@@ -143,9 +140,9 @@ class VectorStore:
             )
 
         # Training buffer
-        self.training_vectors: List[np.ndarray] = []
-        self.training_event_ids: List[List[str]] = []  # One entry per batch
-        self.training_metadata: List[List[dict]] = []
+        self.training_vectors: list[np.ndarray] = []
+        self.training_event_ids: list[list[str]] = []  # One entry per batch
+        self.training_metadata: list[list[dict]] = []
 
         if self.index_path.exists():
             self._load_index()
@@ -164,9 +161,7 @@ class VectorStore:
 
     def _create_index(self):
         """Create new IVF+SQ index."""
-        logger.info(
-            f"Creating 8-bit SQ index (dim={self.dimension}, nlist={self.nlist})"
-        )
+        logger.info(f"Creating 8-bit SQ index (dim={self.dimension}, nlist={self.nlist})")
 
         if self.use_sq:
             quantizer = faiss.IndexFlatIP(self.dimension)
@@ -188,9 +183,7 @@ class VectorStore:
                 gpu_resources = self.gpu_manager.get_resources()
                 if gpu_resources is None:
                     raise RuntimeError("GPU resources not available")
-                self.index = faiss.index_cpu_to_gpu(
-                    gpu_resources, self.gpu_device_id, cpu_index
-                )
+                self.index = faiss.index_cpu_to_gpu(gpu_resources, self.gpu_device_id, cpu_index)
                 logger.info(f"Index transferred to GPU {self.gpu_device_id}")
             except Exception as e:
                 logger.warning(f"GPU transfer failed: {e}, using CPU")
@@ -257,9 +250,7 @@ class VectorStore:
                 gpu_resources = self.gpu_manager.get_resources()
                 if gpu_resources is None:
                     raise RuntimeError("GPU resources not available")
-                self.index = faiss.index_cpu_to_gpu(
-                    gpu_resources, self.gpu_device_id, cpu_index
-                )
+                self.index = faiss.index_cpu_to_gpu(gpu_resources, self.gpu_device_id, cpu_index)
                 logger.info(f"Trained index moved to GPU {self.gpu_device_id}")
             except Exception as e:
                 logger.warning(f"GPU transfer failed: {e}, using CPU")
@@ -276,14 +267,17 @@ class VectorStore:
         vectors_added = 0
 
         for batch_vectors, batch_event_ids, batch_metadata in zip(
-            self.training_vectors, self.training_event_ids, self.training_metadata
+            self.training_vectors,
+            self.training_event_ids,
+            self.training_metadata,
+            strict=True,
         ):
             # FIX: batch_vectors is shape (n,384) not (batch_size, n, 384)
             # batch_event_ids is FLAT list of event_ids for each vector
 
             vector_ids = []
             with self._id_map_lock:
-                for i, event_id in enumerate(batch_event_ids):
+                for _i, event_id in enumerate(batch_event_ids):
                     vid = self.next_vector_id
                     self.vector_id_to_event_id[vid] = event_id
 
@@ -326,7 +320,7 @@ class VectorStore:
             logger.warning(f"Could not set nprobe: {e}")
 
     def add_vectors(
-        self, vectors: np.ndarray, event_ids: List[str], metadata: List[dict]
+        self, vectors: np.ndarray, event_ids: list[str], metadata: list[dict]
     ) -> dict:  # sourcery skip: extract-method
         """
         Add vectors to index - retrain if optimal nlist changes significantly.
@@ -405,7 +399,7 @@ class VectorStore:
 
         return {"status": "added", "vectors_added": n_vectors}
 
-    def remove_vectors(self, event_ids: List[str]) -> dict:
+    def remove_vectors(self, event_ids: list[str]) -> dict:
         """Remove all vectors associated with event_ids."""
         if not self.is_trained:
             logger.warning("Index not trained, cannot remove vectors")
@@ -426,16 +420,12 @@ class VectorStore:
                     removed_count += len(vector_ids)
 
         if removed_count > 0:
-            logger.info(
-                f"Marked {removed_count} vectors as deleted (from {len(event_ids)} events)"
-            )
+            logger.info(f"Marked {removed_count} vectors as deleted (from {len(event_ids)} events)")
             self._save()
 
         return {"removed": removed_count}
 
-    def search(
-        self, query: np.ndarray, k: int = 10
-    ) -> Tuple[List[str], List[float], List[dict]]:
+    def search(self, query: np.ndarray, k: int = 10) -> tuple[list[str], list[float], list[dict]]:
         """
         Search for k nearest neighbors and aggregate by event_id.
 
@@ -451,7 +441,7 @@ class VectorStore:
         query = self._normalize_vectors(query.reshape(1, -1))
         distances, vector_ids = self.index.search(query, k * 5)  # type: ignore # Get more to aggregate
 
-        event_results: Dict[str, Tuple[float, dict]] = {}
+        event_results: dict[str, tuple[float, dict]] = {}
 
         for i, vid in enumerate(vector_ids[0]):
             if vid == -1:
@@ -465,16 +455,11 @@ class VectorStore:
             ):
                 distance = float(distances[0][i])
                 # Keep best distance for each event
-                if (
-                    event_id not in event_results
-                    or distance > event_results[event_id][0]
-                ):
+                if event_id not in event_results or distance > event_results[event_id][0]:
                     event_results[event_id] = (distance, self.metadata[int(vid)])
 
         # Sort by distance (descending = higher similarity for inner product) and take top k
-        sorted_events = sorted(
-            event_results.items(), key=lambda x: x[1][0], reverse=True
-        )[:k]
+        sorted_events = sorted(event_results.items(), key=lambda x: x[1][0], reverse=True)[:k]
 
         event_ids = [eid for eid, _ in sorted_events]
         distances_list = [dist for _, (dist, _) in sorted_events]
@@ -493,7 +478,7 @@ class VectorStore:
 
     def search_batch(
         self, queries: np.ndarray, k: int = 10, force_batch: bool = False
-    ) -> List[Tuple[List[str], List[float], List[dict]]]:
+    ) -> list[tuple[list[str], list[float], list[dict]]]:
         """
         Batch search for multiple queries.
 
@@ -516,7 +501,7 @@ class VectorStore:
 
         results = []
         for query_idx in range(len(queries)):
-            event_results: Dict[str, Tuple[float, dict]] = {}
+            event_results: dict[str, tuple[float, dict]] = {}
 
             for i, vid in enumerate(vector_ids[query_idx]):
                 if vid == -1:
@@ -530,19 +515,14 @@ class VectorStore:
                 ):
                     distance = float(distances[query_idx][i])
                     # Keep best distance for each event
-                    if (
-                        event_id not in event_results
-                        or distance > event_results[event_id][0]
-                    ):
+                    if event_id not in event_results or distance > event_results[event_id][0]:
                         event_results[event_id] = (
                             distance,
                             self.metadata[int(vid)],
                         )
 
             # Sort by distance (descending = higher similarity) and take top k
-            sorted_events = sorted(
-                event_results.items(), key=lambda x: x[1][0], reverse=True
-            )[:k]
+            sorted_events = sorted(event_results.items(), key=lambda x: x[1][0], reverse=True)[:k]
 
             event_ids = [eid for eid, _ in sorted_events]
             distances_list = [dist for _, (dist, _) in sorted_events]
@@ -578,9 +558,7 @@ class VectorStore:
     def get_info(self) -> dict:
         """Get index statistics."""
         n_vectors = self.index.ntotal if self.is_trained else 0
-        optimal_nlist = (
-            self._calculate_optimal_nlist(n_vectors) if n_vectors > 0 else self.nlist
-        )
+        optimal_nlist = self._calculate_optimal_nlist(n_vectors) if n_vectors > 0 else self.nlist
 
         # Calculate nlist_ratio, handling None values
         nlist_ratio = 1.0
@@ -605,9 +583,7 @@ class VectorStore:
             "recommended_batch_size": self.get_recommended_batch_size(),
         }
 
-    def retrain(
-        self, force: bool = False, expected_vector_count: Optional[int] = None
-    ) -> dict:
+    def retrain(self, force: bool = False, expected_vector_count: int | None = None) -> dict:
         """
         Check index health and optionally update nlist for expected vector count.
 
@@ -648,9 +624,7 @@ class VectorStore:
                 self.index.reconstruct(vec_id, vec)
                 all_vectors.append(vec)
                 all_ids.append(vec_id)
-                all_metadata.append(
-                    self.metadata[vec_id] if vec_id < len(self.metadata) else {}
-                )
+                all_metadata.append(self.metadata[vec_id] if vec_id < len(self.metadata) else {})
 
             # Update nlist and recreate index
             self.nlist = optimal_nlist
@@ -700,7 +674,10 @@ class VectorStore:
             "nlist": self.nlist,
             "optimal": optimal_nlist,
             "drift_ratio": drift_ratio,
-            "note": "IVF+SQ nlist cannot be changed after training. Use force=True with expected_vector_count to rebuild.",
+            "note": (
+                "IVF+SQ nlist cannot be changed after training. "
+                "Use force=True with expected_vector_count to rebuild."
+            ),
         }
 
     def clear(self):
@@ -742,9 +719,11 @@ class VectorStore:
             self.is_trained = self.index.is_trained
 
             with open(self.metadata_path, "rb") as f:
-                self.metadata = pickle.load(f)
+                # Security: pickle data is generated internally by our
+                # system, not from untrusted sources
+                self.metadata = pickle.load(f)  # nosec B301 - Internal
 
-            with open(self.id_map_path, "r") as f:
+            with open(self.id_map_path) as f:
                 id_map_data = json.load(f)
 
             self.event_id_to_vector_ids = dict(id_map_data["event_to_vectors"].items())
@@ -757,7 +736,9 @@ class VectorStore:
 
             logger.info(
                 f"Loaded index: {type(self.index).__name__}, "
-                f"{self.index.ntotal} vectors, {len(self.event_id_to_vector_ids)} events, trained={self.is_trained}"
+                f"{self.index.ntotal} vectors, "
+                f"{len(self.event_id_to_vector_ids)} events, "
+                f"trained={self.is_trained}"
             )
 
         except Exception as e:
@@ -782,9 +763,7 @@ class VectorStore:
 
             id_map_data = {
                 "event_to_vectors": self.event_id_to_vector_ids,
-                "vector_to_event": {
-                    str(k): v for k, v in self.vector_id_to_event_id.items()
-                },
+                "vector_to_event": {str(k): v for k, v in self.vector_id_to_event_id.items()},
                 "next_id": self.next_vector_id,
             }
             with open(self.id_map_path, "w") as f:

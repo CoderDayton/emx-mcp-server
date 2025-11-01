@@ -2,11 +2,12 @@
 Pytest configuration and shared fixtures for EMX-MCP-Server tests.
 """
 
-import pytest
-import numpy as np
-import tempfile
 import shutil
+import tempfile
 from pathlib import Path
+
+import numpy as np
+import pytest
 
 
 @pytest.fixture(scope="session")
@@ -115,7 +116,7 @@ def hardware_enriched_config():
     Use this fixture for tests that instantiate EmbeddingEncoder directly
     without going through ProjectMemoryManager.
     """
-    from emx_mcp.utils.hardware import detect_device, detect_batch_size
+    from emx_mcp.utils.hardware import detect_batch_size, detect_device
 
     device = detect_device()
     batch_size = detect_batch_size(device)

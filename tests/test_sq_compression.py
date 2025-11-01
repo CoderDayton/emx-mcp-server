@@ -1,10 +1,11 @@
 """Tests for 8-bit Scalar Quantization (SQ) compression."""
 
-import pytest
-import tempfile
 import shutil
+import tempfile
 from pathlib import Path
+
 import numpy as np
+import pytest
 
 from emx_mcp.storage.vector_store import VectorStore
 
@@ -75,7 +76,9 @@ class TestSQCompression:
     def test_sq_search_recall(self, temp_dir):
         """Test SQ search maintains high recall (97-99%)."""
         dimension = 384
-        num_vectors = 10000  # Increased from 5000 to avoid FAISS clustering warnings (needs 39*nlist)
+        num_vectors = (
+            10000  # Increased from 5000 to avoid FAISS clustering warnings (needs 39*nlist)
+        )
         num_queries = 100
         k = 10
 
@@ -295,10 +298,7 @@ class TestSQCompression:
         info_small = store_small.get_info()
 
         # Should be SQ (accept GPU or CPU variants)
-        assert (
-            "ScalarQuantizer" in info_small["index_type"]
-            or info_small["index_type"] == "SQ"
-        )
+        assert "ScalarQuantizer" in info_small["index_type"] or info_small["index_type"] == "SQ"
 
         # Test large dataset (≥100k) should use IVF+SQ
         store_large = VectorStore(
@@ -316,10 +316,7 @@ class TestSQCompression:
         info_large = store_large.get_info()
 
         # Should be IVF+SQ (accept GPU or CPU variants)
-        assert (
-            "IVF" in info_large["index_type"]
-            and "ScalarQuantizer" in info_large["index_type"]
-        )
+        assert "IVF" in info_large["index_type"] and "ScalarQuantizer" in info_large["index_type"]
 
     def test_sq_cosine_similarity(self, temp_dir):
         """Test that SQ uses cosine similarity with proper normalization."""
@@ -339,7 +336,7 @@ class TestSQCompression:
 
         # Create similar vectors (small perturbations)
         similar_vectors = []
-        for i in range(num_vectors):
+        for _i in range(num_vectors):
             noise = np.random.randn(dimension) * 0.1  # Small noise
             vec = base_vector + noise
             vec = vec / np.linalg.norm(vec)  # L2 normalize

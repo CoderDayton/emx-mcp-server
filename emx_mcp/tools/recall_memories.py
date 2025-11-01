@@ -1,7 +1,7 @@
 """Tool for retrieving relevant memories based on semantic similarity."""
 
-from typing import Any
 import logging
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +28,8 @@ def recall_memories(
 
     Args:
         manager: ProjectMemoryManager instance
-        query: Natural language query (e.g., "debugging React hooks", "meeting notes about Q3 goals")
+        query: Natural language query (e.g., "debugging React hooks",
+            "meeting notes about Q3 goals")
         scope: Search scope - "project" (current codebase), "global" (all projects), "both"
         format: Response format - "concise" (IDs + snippets) or "detailed" (full events)
         k: Number of relevant events to retrieve (default: 10)
@@ -36,9 +37,7 @@ def recall_memories(
     Returns:
         Retrieved memories with relevance scores and index health info
     """
-    logger.info(
-        f"Recalling memories: query='{query[:50]}...', scope={scope}, format={format}"
-    )
+    logger.info(f"Recalling memories: query='{query[:50]}...', scope={scope}, format={format}")
 
     if scope not in ["project", "global", "both"]:
         return {

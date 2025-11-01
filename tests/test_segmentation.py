@@ -1,9 +1,10 @@
 """Test SurpriseSegmenter with pytest-asyncio."""
 
-import pytest
-import numpy as np
-from pathlib import Path
 import sys
+from pathlib import Path
+
+import numpy as np
+import pytest
 
 from emx_mcp.memory.segmentation import SurpriseSegmenter
 
@@ -34,16 +35,12 @@ class TestSurpriseSegmenter:
         assert segmenter.gamma == segmentation_config["gamma"]
         assert segmenter.window_offset == segmentation_config["window_offset"]
 
-    def test_compute_embedding_surprises(
-        self, segmenter, sample_embeddings, segmentation_config
-    ):
+    def test_compute_embedding_surprises(self, segmenter, sample_embeddings, segmentation_config):
         """Test embedding-based surprise calculation."""
         # Generate more tokens for better variance testing
         mock_embeddings = sample_embeddings(10, dimension=384)
         window = segmentation_config["context_window"]
-        surprises = segmenter._compute_embedding_surprises(
-            mock_embeddings, window=window
-        )
+        surprises = segmenter._compute_embedding_surprises(mock_embeddings, window=window)
 
         # Check properties
         assert len(surprises) == len(mock_embeddings)
@@ -105,9 +102,7 @@ class TestSurpriseSegmenter:
         off_diagonal = adjacency[~np.eye(len(mock_embeddings), dtype=bool)]
         assert np.std(off_diagonal) > 0.01
 
-    def test_compute_embedding_adjacency_with_structure(
-        self, segmenter, sample_embeddings
-    ):
+    def test_compute_embedding_adjacency_with_structure(self, segmenter, sample_embeddings):
         """Test adjacency with structured embeddings to verify similarity calculation."""
         # Create embeddings with more explicit structure
         # First 3 tokens very similar, last 2 tokens very different
@@ -119,7 +114,7 @@ class TestSurpriseSegmenter:
 
         # Create very similar embeddings (small perturbations)
         similar_group = []
-        for i in range(3):
+        for _i in range(3):
             perturbation = np.random.randn(384) * 0.1  # Small perturbation
             embedding = base_similar + perturbation
             embedding = embedding / np.linalg.norm(embedding)
@@ -129,7 +124,7 @@ class TestSurpriseSegmenter:
         # Create very different embeddings (different from base)
         base_different = -base_similar  # Opposite direction
         different_group = []
-        for i in range(2):
+        for _i in range(2):
             perturbation = np.random.randn(384) * 0.1
             embedding = base_different + perturbation
             embedding = embedding / np.linalg.norm(embedding)
@@ -170,9 +165,7 @@ class TestSurpriseSegmenter:
         # Boundaries should be unique
         assert len(boundaries) == len(set(boundaries))
 
-    def test_identify_boundaries_comparison(
-        self, segmenter, sample_tokens, sample_embeddings
-    ):
+    def test_identify_boundaries_comparison(self, segmenter, sample_tokens, sample_embeddings):
         """Test that different gamma values produce different boundary sets."""
         # Use a longer sequence for more meaningful comparison
         tokens = sample_tokens["coding_session"]
@@ -202,9 +195,7 @@ class TestSurpriseSegmenter:
         # Higher gamma should produce fewer or equal boundaries
         assert len(boundaries_high) <= len(boundaries_low)
 
-    def test_linear_coherence_segmentation(
-        self, segmenter, sample_tokens, mock_embeddings
-    ):
+    def test_linear_coherence_segmentation(self, segmenter, sample_tokens, mock_embeddings):
         """Test O(n) linear coherence-based segmentation."""
         tokens = sample_tokens["short_sequence"]
 
@@ -219,9 +210,7 @@ class TestSurpriseSegmenter:
         assert boundaries[-1] == len(tokens) - 1
         assert boundaries == sorted(boundaries)
 
-    def test_linear_segmentation_comparison(
-        self, segmenter, sample_tokens, mock_embeddings
-    ):
+    def test_linear_segmentation_comparison(self, segmenter, sample_tokens, mock_embeddings):
         """Test that linear segmentation gives consistent results."""
         _ = sample_tokens["short_sequence"]
 
@@ -262,9 +251,7 @@ class TestSurpriseSegmenter:
         assert boundaries_surprise[-1] == len(tokens) - 1
         assert boundaries_coherence[-1] == len(tokens) - 1
 
-    def test_surprise_calculation_methods(
-        self, segmenter, sample_tokens, mock_embeddings
-    ):
+    def test_surprise_calculation_methods(self, segmenter, sample_tokens, mock_embeddings):
         """Test embedding-based surprise calculation consistency."""
         tokens = sample_tokens["short_sequence"]
 

@@ -9,10 +9,11 @@ Validates:
 - Performance improvements (target: 40-60% latency reduction)
 """
 
-import pytest
-import numpy as np
 import threading
 import time
+
+import numpy as np
+import pytest
 
 # Test fixtures and imports
 try:
@@ -163,9 +164,8 @@ class TestConcurrentStreamUsage:
 
             # Capture thread ID inside the worker thread
             thread_id = threading.get_ident()
-            with stream_manager.acquire_stream() as stream:
-                with lock:
-                    thread_data[thread_idx] = {"thread_id": thread_id, "stream": stream}
+            with stream_manager.acquire_stream() as stream, lock:
+                thread_data[thread_idx] = {"thread_id": thread_id, "stream": stream}
 
         t1 = threading.Thread(target=acquire_in_thread, args=(0,))
         t2 = threading.Thread(target=acquire_in_thread, args=(1,))
@@ -313,9 +313,7 @@ class TestVectorStoreStreamIntegration:
         )
         return store
 
-    @pytest.mark.skip(
-        reason="GPU stream integration not implemented - FAISS index not thread-safe"
-    )
+    @pytest.mark.skip(reason="GPU stream integration not implemented - FAISS index not thread-safe")
     def test_add_vectors_with_stream(self, vector_store, stream_manager):
         """Test adding vectors with CUDA stream."""
         # Create test vectors
@@ -338,9 +336,7 @@ class TestVectorStoreStreamIntegration:
             assert result["status"] in ["added", "buffered"]
             assert result["vectors_added"] == 100
 
-    @pytest.mark.skip(
-        reason="GPU stream integration not implemented - FAISS index not thread-safe"
-    )
+    @pytest.mark.skip(reason="GPU stream integration not implemented - FAISS index not thread-safe")
     def test_concurrent_vector_additions(self, vector_store, stream_manager):
         """Test concurrent vector additions on different streams."""
         num_batches = 3
@@ -365,9 +361,7 @@ class TestVectorStoreStreamIntegration:
             except Exception as e:
                 errors.append(e)
 
-        threads = [
-            threading.Thread(target=add_batch, args=(i,)) for i in range(num_batches)
-        ]
+        threads = [threading.Thread(target=add_batch, args=(i,)) for i in range(num_batches)]
 
         for t in threads:
             t.start()
@@ -456,8 +450,7 @@ class TestPerformanceBenchmarks:
                 stream.synchronize()
 
         threads = [
-            threading.Thread(target=parallel_operation, args=(i,))
-            for i in range(num_operations)
+            threading.Thread(target=parallel_operation, args=(i,)) for i in range(num_operations)
         ]
         for t in threads:
             t.start()

@@ -1,9 +1,8 @@
 """Test batch encoding optimization for event aggregation."""
 
-import time
 import tempfile
+import time
 from pathlib import Path
-from typing import List
 
 import pytest
 
@@ -11,12 +10,12 @@ from emx_mcp.memory.project_manager import ProjectMemoryManager
 from emx_mcp.utils.config import load_config
 
 
-def _create_token_sequence(prefix: str, count: int) -> List[str]:
+def _create_token_sequence(prefix: str, count: int) -> list[str]:
     """Helper: Generate token sequence."""
     return [f"{prefix}_{j}" for j in range(count)]
 
 
-def _add_events_batch(manager, events: List[List[str]]) -> None:
+def _add_events_batch(manager, events: list[list[str]]) -> None:
     """Helper: Add multiple events to manager."""
     manager.add_event(events[0], embeddings=None, metadata={})
     manager.add_event(events[1], embeddings=None, metadata={})
@@ -67,9 +66,7 @@ class TestBatchEncoding:
         """Generate 5 test token sequences with 10 tokens each."""
         return [_create_token_sequence(f"word_{i}", 10) for i in range(5)]
 
-    def test_batch_encoding_faster_than_individual(
-        self, temp_project, config, test_events_20
-    ):
+    def test_batch_encoding_faster_than_individual(self, temp_project, config, test_events_20):
         """Verify batch encoding is faster than per-event encoding."""
         # Create manager with batch encoding enabled
         manager_batch = ProjectMemoryManager(
@@ -105,8 +102,9 @@ class TestBatchEncoding:
         # Batch should be at least 1.2x faster (conservative baseline)
         # Typical speedup is 1.3-2.5x depending on event size and hardware
         assert elapsed_batch < elapsed_individual * 0.83, (
-            f"Batch encoding ({elapsed_batch:.2f}s) should be faster than "
-            f"individual ({elapsed_individual:.2f}s), got {elapsed_individual / elapsed_batch:.2f}x speedup"
+            f"Batch encoding ({elapsed_batch:.2f}s) should be faster "
+            f"than individual ({elapsed_individual:.2f}s), got "
+            f"{elapsed_individual / elapsed_batch:.2f}x speedup"
         )
 
     def test_batch_flush_mechanism(self, temp_project, config):
@@ -199,9 +197,7 @@ class TestBatchEncoding:
 
         # Add event with force_flush=True
         tokens = _create_token_sequence("token", 10)
-        result = manager.add_event(
-            tokens, embeddings=None, metadata={}, force_flush=True
-        )
+        result = manager.add_event(tokens, embeddings=None, metadata={}, force_flush=True)
 
         # Should be added immediately
         assert result["status"] == "added"
@@ -211,9 +207,7 @@ class TestBatchEncoding:
         store = manager.project_store
         assert store.event_count() == 1
 
-    def test_batch_encoding_preserves_embeddings(
-        self, temp_project, config, test_tokens_5
-    ):
+    def test_batch_encoding_preserves_embeddings(self, temp_project, config, test_tokens_5):
         """Verify batch encoding produces same embeddings as individual."""
         config["memory"]["batch_event_threshold"] = 5
 
@@ -232,21 +226,11 @@ class TestBatchEncoding:
 
         # Encode individually for comparison
         encoder = manager.encoder
-        individual_emb_0 = encoder.encode_tokens_with_context(
-            test_tokens_5[0], context_window=10
-        )
-        individual_emb_1 = encoder.encode_tokens_with_context(
-            test_tokens_5[1], context_window=10
-        )
-        individual_emb_2 = encoder.encode_tokens_with_context(
-            test_tokens_5[2], context_window=10
-        )
-        individual_emb_3 = encoder.encode_tokens_with_context(
-            test_tokens_5[3], context_window=10
-        )
-        individual_emb_4 = encoder.encode_tokens_with_context(
-            test_tokens_5[4], context_window=10
-        )
+        individual_emb_0 = encoder.encode_tokens_with_context(test_tokens_5[0], context_window=10)
+        individual_emb_1 = encoder.encode_tokens_with_context(test_tokens_5[1], context_window=10)
+        individual_emb_2 = encoder.encode_tokens_with_context(test_tokens_5[2], context_window=10)
+        individual_emb_3 = encoder.encode_tokens_with_context(test_tokens_5[3], context_window=10)
+        individual_emb_4 = encoder.encode_tokens_with_context(test_tokens_5[4], context_window=10)
 
         # Get batch-encoded embeddings from storage
         store = manager.project_store

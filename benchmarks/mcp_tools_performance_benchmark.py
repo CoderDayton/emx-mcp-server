@@ -96,7 +96,8 @@ class MCPToolsBenchmark:
 
         logger.info(f"💻 System: {self.results['system']['cpu_model']}")
         logger.info(
-            f"🧮 CPU: {self.results['system']['cpu_cores']}c/{self.results['system']['cpu_threads']}t, "
+            f"🧮 CPU: {self.results['system']['cpu_cores']}c/"
+            f"{self.results['system']['cpu_threads']}t, "
             f"RAM: {self.results['system']['ram_gb']}GB"
         )
         if gpu_available:
@@ -154,7 +155,7 @@ File size limit of 100MB keeps storage costs reasonable while serving most use c
         target = self.corpus_size
 
         while current_tokens < target:
-            for seg_type, content in segments.items():
+            for _seg_type, content in segments.items():
                 tokens = content.split()
                 corpus_parts.append(content)
                 current_tokens += len(tokens)
@@ -224,9 +225,7 @@ File size limit of 100MB keeps storage costs reasonable while serving most use c
             "num_events": num_segments,
             "tokens_per_event_avg": actual_tokens // num_segments,
             "segmentation_time_sec": round(seg_time, 3),
-            "segmentation_throughput_tokens_per_sec": round(
-                actual_tokens / seg_time, 0
-            ),
+            "segmentation_throughput_tokens_per_sec": round(actual_tokens / seg_time, 0),
             "add_events_time_sec": round(add_time, 3),
             "add_events_throughput_events_per_sec": round(num_segments / add_time, 1),
             "total_time_sec": round(total_time, 3),
@@ -246,9 +245,7 @@ File size limit of 100MB keeps storage costs reasonable while serving most use c
         }
 
         logger.info(f"✅ Ingestion complete: {total_time:.2f}s total")
-        logger.info(
-            f"📊 Events: {num_segments}, Vectors: {index_info['total_vectors']:,}"
-        )
+        logger.info(f"📊 Events: {num_segments}, Vectors: {index_info['total_vectors']:,}")
         logger.info(
             f"🎯 Index: nlist={index_info['nlist']} (optimal={index_info['optimal_nlist']}, "
             f"ratio={index_info['nlist_ratio']:.1%})"
@@ -310,7 +307,7 @@ File size limit of 100MB keeps storage costs reasonable while serving most use c
             total_batch_time = time.time() - batch_start
             avg_latency_ms = (total_batch_time / len(queries)) * 1000
 
-            for i, (query, result) in enumerate(zip(queries, batch_results)):
+            for i, (query, result) in enumerate(zip(queries, batch_results, strict=True)):
                 latencies.append(avg_latency_ms)
                 results_per_query.append(len(result.get("events", [])))
 
@@ -377,9 +374,7 @@ File size limit of 100MB keeps storage costs reasonable while serving most use c
             f"✅ Retrieval latency: min={min_lat:.1f}ms, p50={p50:.1f}ms, "
             f"p95={p95:.1f}ms, p99={p99:.1f}ms, max={max_lat:.1f}ms"
         )
-        logger.info(
-            f"📈 Throughput: {self.results['retrieval']['throughput_qps']:.1f} QPS"
-        )
+        logger.info(f"📈 Throughput: {self.results['retrieval']['throughput_qps']:.1f} QPS")
 
     def benchmark_manage_memory(self, manager: ProjectMemoryManager):
         """Benchmark manage_memory tool: stats, estimate, retrain operations."""
@@ -415,13 +410,12 @@ File size limit of 100MB keeps storage costs reasonable while serving most use c
         if nlist_ratio < 0.85:
             # Would trigger retrain in production
             logger.info(
-                f"⚠️  Index suboptimal: nlist={current_nlist} vs optimal={index_info['optimal_nlist']} "
+                f"⚠️  Index suboptimal: nlist={current_nlist} "
+                f"vs optimal={index_info['optimal_nlist']} "
                 f"(ratio={nlist_ratio:.1%})"
             )
         else:
-            logger.info(
-                f"✅ Index optimal: nlist={current_nlist} (ratio={nlist_ratio:.1%})"
-            )
+            logger.info(f"✅ Index optimal: nlist={current_nlist} (ratio={nlist_ratio:.1%})")
 
         self.results["management"] = {
             "stats_query_time_ms": round(stats_time, 2),
@@ -485,12 +479,8 @@ File size limit of 100MB keeps storage costs reasonable while serving most use c
             total_time = time.time() - batch_start
 
             # Analyze search results
-            total_results_found = sum(
-                len(event_ids) for event_ids, _, _ in batch_search_results
-            )
-            avg_results_per_query = (
-                total_results_found / batch_size if batch_size > 0 else 0
-            )
+            total_results_found = sum(len(event_ids) for event_ids, _, _ in batch_search_results)
+            avg_results_per_query = total_results_found / batch_size if batch_size > 0 else 0
 
             # Calculate average relevance scores
             all_distances = []
@@ -543,8 +533,7 @@ File size limit of 100MB keeps storage costs reasonable while serving most use c
         events_exported = manager.get_stats()["project_events"]
 
         logger.info(
-            f"✅ Export: {export_time:.2f}s, {archive_size_mb:.2f}MB, "
-            f"{events_exported} events"
+            f"✅ Export: {export_time:.2f}s, {archive_size_mb:.2f}MB, {events_exported} events"
         )
 
         # Test import to new location
@@ -612,8 +601,7 @@ File size limit of 100MB keeps storage costs reasonable while serving most use c
 
         logger.info("\n🚀 INGESTION:")
         logger.info(
-            f"  • Throughput: {tokens_per_sec:,.0f} tokens/sec, "
-            f"{events_per_sec:.1f} events/sec"
+            f"  • Throughput: {tokens_per_sec:,.0f} tokens/sec, {events_per_sec:.1f} events/sec"
         )
         logger.info(
             f"  • Total: {ingestion['total_tokens']:,} tokens → "
@@ -710,9 +698,7 @@ def main():
     """Entry point."""
     import argparse
 
-    parser = argparse.ArgumentParser(
-        description="MCP Tools End-to-End Performance Benchmark"
-    )
+    parser = argparse.ArgumentParser(description="MCP Tools End-to-End Performance Benchmark")
     parser.add_argument(
         "--tokens",
         type=int,
