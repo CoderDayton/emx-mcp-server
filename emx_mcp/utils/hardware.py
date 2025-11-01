@@ -60,7 +60,8 @@ def detect_batch_size(device: str, model_name: str = "all-MiniLM-L6-v2") -> int:
             available_for_batch = max(2.0, total_memory_gb - model_overhead_gb)
 
             # Empirical scaling: all-MiniLM uses ~40MB per batch of 32
-            batch_size = max(64, min(512, int(available_for_batch * 50)))
+            # Increased cap to 1024 for high-end GPUs like RTX 4090
+            batch_size = max(64, min(1024, int(available_for_batch * 50)))
 
             logger.info(
                 f"Auto-scaled batch_size={batch_size} for GPU "

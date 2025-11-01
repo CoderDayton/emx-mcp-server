@@ -88,12 +88,32 @@ class EmbeddingEncoder:
                     "Hardware detection should have caught this."
                 )
 
+            # Load model
+            self.model = SentenceTransformer(model_name, device=device)
+            self.model.eval()
+
             self.device = device
             self.torch_available = True
             self.torch = torch
 
-            # Load model
-            self.model = SentenceTransformer(model_name, device=device)
+            # Performance optimization: Use TensorFloat32 for faster matmul on Ampere+ GPUs
+            if device == "cuda":
+                self.torch.backends.cuda.matmul.allow_tf32 = True
+                self.torch.backends.cudnn.allow_tf32 = True
+                logger.info(
+                    "Set matmul precision to 'high' (TF32) for faster inference"
+                )
+
+            if device == "cuda" and self.torch.__version__ >= "2.0.0":
+                try:
+                    self.model[0].auto_model = self.torch.compile(  # type: ignore
+                        self.model[0].auto_model, mode="reduce-overhead", fullgraph=False  # type: ignore
+                    )
+                    self._warmup()
+                    logger.info("torch.compile enabled on transformer model")
+                except Exception as e:
+                    logger.warning(f"torch.compile failed: {e}, using eager mode")
+
             self.dimension = self.model.get_sentence_embedding_dimension()
             self.model_name = model_name
             self.batch_size = batch_size
@@ -141,158 +161,51 @@ class EmbeddingEncoder:
                 "Install with: pip install sentence-transformers"
             ) from e
 
-    def encode_tokens(self, tokens: List[str]) -> np.ndarray:
-        """
-        Encode token sequence into single embedding.
-
-        Args:
-            tokens: List of token strings
-
-        Returns:
-            Embedding vector of shape (dimension,)
-        """
-        if not tokens:
-            raise ValueError("Token list cannot be empty")
-
-        text = " ".join(tokens)
-        embedding = self.model.encode(
-            text,
-            batch_size=self.batch_size,
-            convert_to_numpy=True,
-            show_progress_bar=False,
-            device=self.device,
-        )
-        return embedding.astype(np.float32)
-
     def encode_batch(
         self,
         token_lists: List[List[str]],
         use_pinned_memory: bool = False,
         stream: Optional["torch.cuda.Stream"] = None,
-    ) -> Union[np.ndarray, Tuple[Any, Callable[[], None]]]:
+    ) -> np.ndarray:
         """
-        Batch encode multiple token sequences with GPU optimization.
+        Batch encode multiple token sequences (wrapper for backward compatibility).
+
+        This is a convenience wrapper around encode_tokens_with_context().
+        For each sequence, averages per-token embeddings to get a single vector.
 
         Args:
             token_lists: List of token lists
-            use_pinned_memory: If True, attempt to use pinned memory buffers
-            stream: Optional CUDA stream for async execution
+            use_pinned_memory: Ignored (kept for API compatibility)
+            stream: Ignored (kept for API compatibility)
 
         Returns:
-            If pinned memory used: Tuple of (pinned_tensor, release_callback)
-            Otherwise: Embeddings array of shape (n_sequences, dimension)
+            Embeddings array of shape (n_sequences, dimension)
         """
         if not token_lists:
             raise ValueError("Token lists cannot be empty")
 
-        texts = [" ".join(tokens) for tokens in token_lists]
-        batch_size = len(texts)
+        # Flatten all tokens and track boundaries
+        all_tokens = []
+        token_boundaries = [0]
+        for tokens in token_lists:
+            all_tokens.extend(tokens)
+            token_boundaries.append(len(all_tokens))
 
-        # Track embedding generation metrics
-        instruments = _get_instruments()
-        ctx = (
-            instruments.track_embedding(batch_size, self.device)
-            if instruments
-            else None
+        # Encode all at once with no context (context_window=0)
+        all_embeddings = self.encode_tokens_with_context(all_tokens, context_window=0)
+
+        # Average embeddings per sequence
+        embeddings = np.array(
+            [
+                np.mean(
+                    all_embeddings[token_boundaries[i] : token_boundaries[i + 1]],
+                    axis=0,
+                )
+                for i in range(len(token_lists))
+            ]
         )
 
-        try:
-            if ctx:
-                ctx.__enter__()
-
-            # Fixed stream context to properly wrap entire encoding operation
-            if stream is not None and self.torch_available and self.device == "cuda":
-                import torch
-
-                with torch.cuda.stream(stream):
-                    embeddings = self.model.encode(
-                        texts,
-                        batch_size=self.batch_size,
-                        convert_to_numpy=False,
-                        show_progress_bar=False,
-                        device=self.device,
-                    )
-                    # model.encode with convert_to_numpy=False returns list of tensors
-                    if isinstance(embeddings, list):
-                        embeddings = torch.stack(embeddings)
-
-                    if embeddings.dtype != torch.float32:
-                        embeddings = embeddings.to(torch.float32)
-                    embeddings = embeddings.cpu().numpy().astype(np.float32)
-            else:
-                embeddings = self.model.encode(
-                    texts,
-                    batch_size=self.batch_size,
-                    convert_to_numpy=True,
-                    show_progress_bar=False,
-                    device=self.device,
-                )
-                embeddings = embeddings.astype(np.float32)
-
-            # Check if we should use pinned memory
-            should_pin = (
-                use_pinned_memory
-                and self.torch_available
-                and self.device == "cuda"
-                and self.gpu_config.get("enable_pinned_memory", False)
-                and batch_size >= self.gpu_config.get("pinned_min_batch_threshold", 64)
-            )
-
-            if not should_pin:
-                if ctx:
-                    ctx.__exit__(None, None, None)
-                return embeddings
-
-            # Efficient pinned memory transfer
-            try:
-                dimension = int(self.dimension) if self.dimension else 384
-                pool = get_global_pool(
-                    dimension=dimension,
-                    max_batch_size=self.gpu_config.get("pinned_max_batch", 256),
-                    buffer_size=self.gpu_config.get("pinned_buffer_size", 4),
-                )
-
-                if pool is None:
-                    logger.debug("Pinned memory pool unavailable, using regular numpy")
-                    if ctx:
-                        ctx.__exit__(None, None, None)
-                    return embeddings
-
-                buffer, release_callback = pool.acquire(batch_size)
-                buffer[:batch_size] = embeddings
-
-                if stream is not None:
-                    try:
-                        from emx_mcp.gpu.stream_manager import StreamManager
-
-                        StreamManager.record_tensor_stream(buffer[:batch_size], stream)
-                    except ImportError:
-                        logger.debug(
-                            "StreamManager not available, skipping stream recording"
-                        )
-
-                logger.debug(
-                    f"Using pinned memory for batch_size={batch_size} "
-                    f"(threshold={self.gpu_config.get('pinned_min_batch_threshold', 64)})"
-                )
-
-                if ctx:
-                    ctx.__exit__(None, None, None)
-                return buffer[:batch_size], release_callback
-
-            except Exception as e:
-                logger.warning(
-                    f"Failed to acquire pinned memory (batch_size={batch_size}): {e}. "
-                    f"Falling back to regular numpy array"
-                )
-                if ctx:
-                    ctx.__exit__(None, None, None)
-                return embeddings
-
-        except Exception as e:
-            if ctx:
-                ctx.__exit__(type(e), e, e.__traceback__)
-            raise
+        return embeddings.astype(np.float32)
 
     def encode_tokens_with_context(
         self, tokens: List[str], context_window: int = 10
@@ -328,13 +241,18 @@ class EmbeddingEncoder:
         # sentence-transformers handles internal batching automatically
         logger.info(f"Encoding {n_tokens} contexts in single batch operation...")
 
-        embeddings = self.model.encode(
-            context_texts,
-            batch_size=self.batch_size,  # Internal batching, not repeated calls
-            convert_to_numpy=True,
-            show_progress_bar=False,
-            device=self.device,
-        )
+        with self.torch.inference_mode():
+            with self.torch.autocast(
+                enabled=self.enable_cuda_graphs and self.device == "cuda",
+                device_type=self.device,
+            ):
+                embeddings = self.model.encode(
+                    context_texts,
+                    batch_size=self.batch_size,  # Internal batching, not repeated calls
+                    convert_to_numpy=True,
+                    show_progress_bar=False,
+                    device=self.device,
+                )
 
         logger.info(f"Batch encoding complete: {embeddings.shape}")
         return embeddings.astype(np.float32)
@@ -361,26 +279,18 @@ class EmbeddingEncoder:
         )
         return embedding.astype(np.float32)
 
-    def warmup_gpu_cache(self) -> None:
-        """
-        Pre-allocate GPU memory cache for faster first inference.
-        """
-        if self.device != "cuda":
-            logger.debug("Warmup skipped (not using CUDA)")
-            return
-
-        try:
-            logger.info("Warming up GPU cache...")
-            dummy_texts = ["sample text for warmup"] * min(8, self.batch_size)
-            _ = self.model.encode(
-                dummy_texts,
-                batch_size=self.batch_size,
-                convert_to_numpy=True,
-                show_progress_bar=False,
-            )
-            logger.info("GPU cache warmup complete")
-        except Exception as e:
-            logger.warning(f"GPU cache warmup failed: {e}")
+    def _warmup(self):
+        """Warmup compiled model (happens once at init)."""
+        logger.debug("Warming up compiled encoder...")
+        with self.torch.inference_mode():
+            with self.torch.autocast(
+                enabled=self.device == "cuda", device_type=self.device
+            ):
+                dummy = ["warmup"] * min(10, self.batch_size)
+                for _ in range(3):
+                    self.model.encode(
+                        dummy, batch_size=len(dummy), show_progress_bar=False
+                    )
 
     def get_device_info(self) -> dict:
         """

@@ -16,6 +16,11 @@ mcp = FastMCP("EMX Memory MCP Server", version="1.0.0")
 config = load_config()
 logger = setup_logging(config)
 
+# Log expected tokens if configured
+if config.get("storage", {}).get("expected_total_tokens"):
+    expected = config["storage"]["expected_total_tokens"]
+    logger.info(f"Using expected token count: {expected} for optimal nlist")
+
 # Initialize OpenTelemetry metrics
 try:
     setup_metrics(config)
@@ -27,20 +32,11 @@ try:
 except Exception as e:
     logger.warning(f"Failed to initialize metrics: {e}")
 
-# Detect project path
-project_path = os.getenv("EMX_PROJECT_PATH", os.getcwd())
-global_path = os.getenv(
-    "EMX_GLOBAL_PATH", str(Path.home() / ".emx-mcp" / "global_memories")
+# Detect project path from config (already validated)
+project_path = config.get("project_path", os.getcwd())
+global_path = config.get(
+    "global_path", str(Path.home() / ".emx-mcp" / "global_memories")
 )
-
-# Check for expected token count hint (for optimal nlist calculation)
-expected_tokens = os.getenv("EMX_EXPECTED_TOKENS")
-if expected_tokens:
-    try:
-        config["storage"]["expected_total_tokens"] = int(expected_tokens)
-        logger.info(f"Using expected token count: {expected_tokens} for optimal nlist")
-    except ValueError:
-        logger.warning(f"Invalid EMX_EXPECTED_TOKENS value: {expected_tokens}")
 
 # Initialize memory manager
 manager = ProjectMemoryManager(
@@ -241,7 +237,7 @@ def remember_context(
         results["num_segments"] = seg_result["num_events"]
         results["segmentation_method"] = seg_result["method"]
 
-        # Store each segment as separate event
+        # Store each segment as separate event (batched encoding optimization)
         for i in range(len(boundaries) - 1):
             segment_tokens = tokens[boundaries[i] : boundaries[i + 1]]
             event_result = manager.add_event(
@@ -249,10 +245,19 @@ def remember_context(
             )
             results["event_ids"].append(event_result["event_id"])
 
+        # Flush any remaining buffered events
+        flush_result = manager.flush_events()
+        if flush_result["status"] == "flushed":
+            results["batch_encoding_stats"] = {
+                "events_flushed": flush_result["num_events"],
+                "total_tokens": flush_result["total_tokens"],
+                "tokens_per_second": flush_result["tokens_per_second"],
+            }
+
     else:
         # Store as single event without segmentation
         event_result = manager.add_event(
-            tokens, embeddings=None, metadata=metadata or {}
+            tokens, embeddings=None, metadata=metadata or {}, force_flush=True
         )
         results["event_ids"].append(event_result["event_id"])
         results["num_segments"] = 1

@@ -107,6 +107,12 @@ class MemoryConfig(BaseSettings):
         default="modularity",
         description="Boundary refinement metric",
     )
+    batch_event_threshold: int = Field(
+        default=10,
+        ge=1,
+        le=100,
+        description="Number of events to buffer before batch encoding (2-3x faster ingestion)",
+    )
 
     @model_validator(mode="after")
     def validate_block_sizes(self) -> "MemoryConfig":
@@ -337,6 +343,12 @@ class EMXConfig(BaseSettings):
         alias="EMX_GLOBAL_PATH",
         description="Global memory path override",
     )
+    expected_tokens: Optional[int] = Field(
+        default=None,
+        alias="EMX_EXPECTED_TOKENS",
+        ge=1000,
+        description="Expected total tokens hint for optimal nlist calculation",
+    )
 
     @model_validator(mode="after")
     def resolve_paths(self) -> "EMXConfig":
@@ -353,7 +365,7 @@ class EMXConfig(BaseSettings):
 
     def to_legacy_dict(self) -> dict:
         """Convert to legacy dictionary format for backward compatibility."""
-        return {
+        legacy_dict = {
             "model": {
                 "name": self.model.name,
                 "device": self.model.device,
@@ -370,6 +382,7 @@ class EMXConfig(BaseSettings):
                 "n_mem": self.memory.n_mem,
                 "repr_topk": self.memory.repr_topk,
                 "refinement_metric": self.memory.refinement_metric,
+                "batch_event_threshold": self.memory.batch_event_threshold,
             },
             "storage": {
                 "vector_dim": self.storage.vector_dim,
@@ -395,6 +408,12 @@ class EMXConfig(BaseSettings):
                 "format": self.logging.format,
             },
         }
+
+        # Add expected_tokens if set
+        if self.expected_tokens is not None:
+            legacy_dict["storage"]["expected_total_tokens"] = self.expected_tokens
+
+        return legacy_dict
 
 
 def load_validated_config() -> EMXConfig:

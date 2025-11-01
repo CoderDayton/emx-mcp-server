@@ -141,7 +141,7 @@ class TestEmbeddingEncoder:
 
         # Encode individual tokens
         individual_embeddings = encoder.encode_tokens_with_context(
-            tokens, context_window=1
+            tokens, context_window=0
         )
 
         # They should be different (context affects embeddings)

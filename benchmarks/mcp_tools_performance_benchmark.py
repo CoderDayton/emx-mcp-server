@@ -66,7 +66,6 @@ class MCPToolsBenchmark:
         self.project_path.mkdir()
         os.environ["EMX_PROJECT_PATH"] = str(self.project_path)
         os.environ["EMX_EXPECTED_TOKENS"] = str(corpus_size)
-        os.environ["EMX_GPU_ENABLE_PINNED_MEMORY"] = "false"
 
         logger.info(f"🚀 MCP Tools Benchmark initialized: {corpus_size} tokens")
         logger.info(f"📁 Test project: {self.project_path}")

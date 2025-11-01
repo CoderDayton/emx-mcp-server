@@ -16,18 +16,24 @@ if env_file.exists():
 def load_config() -> dict:
     """
     Load and validate configuration from environment variables.
-    
+
     Automatically loads .env file from current directory if present.
     Uses Pydantic validation for type safety and range checking.
-    
+
     Returns:
-        dict: Validated configuration in legacy format
-        
+        dict: Validated configuration in legacy format with project_path and global_path
+
     Raises:
         ValueError: If configuration validation fails
     """
     config_obj = load_validated_config()
-    return config_obj.to_legacy_dict()
+    legacy_dict = config_obj.to_legacy_dict()
+
+    # Add project and global paths to top level
+    legacy_dict["project_path"] = config_obj.project_path
+    legacy_dict["global_path"] = config_obj.global_path
+
+    return legacy_dict
 
 
 # Legacy helper functions (maintained for backward compatibility)
@@ -36,10 +42,10 @@ def _get_env_bool(name: str, default: bool) -> bool:
     value = os.getenv(name)
     if value is None:
         return default
-    
-    if value.lower() in ('true', '1', 'yes', 'on'):
+
+    if value.lower() in ("true", "1", "yes", "on"):
         return True
-    elif value.lower() in ('false', '0', 'no', 'off'):
+    elif value.lower() in ("false", "0", "no", "off"):
         return False
     else:
         return bool(value)
