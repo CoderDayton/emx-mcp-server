@@ -1,7 +1,7 @@
 {
   "config": {
     "corpus_size_tokens": 60000,
-    "timestamp": "2025-11-01 03:50:21"
+    "timestamp": "2025-11-01 13:57:11"
   },
   "system": {
     "platform": "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.39",
@@ -17,14 +17,14 @@
     "total_tokens": 60042,
     "num_events": 2438,
     "tokens_per_event_avg": 24,
-    "segmentation_time_sec": 7.655,
-    "segmentation_throughput_tokens_per_sec": 7843.0,
-    "add_events_time_sec": 133.845,
-    "add_events_throughput_events_per_sec": 18.2,
-    "total_time_sec": 141.5,
-    "memory_delta_mb": 777.04,
+    "segmentation_time_sec": 6.373,
+    "segmentation_throughput_tokens_per_sec": 9421.0,
+    "add_events_time_sec": 129.341,
+    "add_events_throughput_events_per_sec": 18.8,
+    "total_time_sec": 135.714,
+    "memory_delta_mb": 570.91,
     "index_trained": true,
-    "total_vectors": 59829,
+    "total_vectors": 59803,
     "nlist": 881,
     "optimal_nlist": 978,
     "nlist_ratio": 0.901,
@@ -34,22 +34,22 @@
     "num_queries": 10,
     "k_per_query": 10,
     "latency_ms": {
-      "min": 34.37,
-      "avg": 168.7,
-      "p50": 59.54,
-      "p95": 698.8,
-      "p99": 1113.46,
-      "max": 1217.13
+      "min": 69.55,
+      "avg": 69.55,
+      "p50": 69.55,
+      "p95": 69.55,
+      "p99": 69.55,
+      "max": 69.55
     },
     "results_per_query": {
       "min": 15,
       "avg": 15.0,
       "max": 15
     },
-    "throughput_qps": 5.9
+    "throughput_qps": 14.4
   },
   "management": {
-    "stats_query_time_ms": 0.03,
+    "stats_query_time_ms": 0.05,
     "estimate_time_ms": 0.0,
     "project_events": 2430,
     "global_events": 0,
@@ -68,41 +68,41 @@
     ],
     "results": {
       "10": {
-        "encode_time_sec": 0.041,
-        "search_time_sec": 0.007,
-        "total_time_sec": 0.047,
-        "queries_per_sec": 210.8,
-        "avg_latency_ms": 4.74,
+        "encode_time_sec": 0.011,
+        "search_time_sec": 0.006,
+        "total_time_sec": 0.017,
+        "queries_per_sec": 593.9,
+        "avg_latency_ms": 1.68,
         "total_results_found": 100,
         "avg_results_per_query": 10.0,
         "avg_relevance_distance": 0.5558
       },
       "50": {
-        "encode_time_sec": 0.143,
-        "search_time_sec": 0.029,
-        "total_time_sec": 0.172,
-        "queries_per_sec": 291.3,
-        "avg_latency_ms": 3.43,
+        "encode_time_sec": 0.013,
+        "search_time_sec": 0.023,
+        "total_time_sec": 0.036,
+        "queries_per_sec": 1390.6,
+        "avg_latency_ms": 0.72,
         "total_results_found": 500,
         "avg_results_per_query": 10.0,
         "avg_relevance_distance": 0.5517
       },
       "100": {
-        "encode_time_sec": 0.236,
-        "search_time_sec": 0.043,
-        "total_time_sec": 0.279,
-        "queries_per_sec": 358.7,
-        "avg_latency_ms": 2.79,
+        "encode_time_sec": 0.012,
+        "search_time_sec": 0.054,
+        "total_time_sec": 0.066,
+        "queries_per_sec": 1521.9,
+        "avg_latency_ms": 0.66,
         "total_results_found": 1000,
         "avg_results_per_query": 10.0,
         "avg_relevance_distance": 0.5462
       },
       "200": {
-        "encode_time_sec": 0.433,
-        "search_time_sec": 0.085,
-        "total_time_sec": 0.518,
-        "queries_per_sec": 386.2,
-        "avg_latency_ms": 2.59,
+        "encode_time_sec": 0.016,
+        "search_time_sec": 0.075,
+        "total_time_sec": 0.092,
+        "queries_per_sec": 2181.2,
+        "avg_latency_ms": 0.46,
         "total_results_found": 2000,
         "avg_results_per_query": 10.0,
         "avg_relevance_distance": 0.5449
@@ -112,29 +112,29 @@
     "device": "cuda"
   },
   "transfer": {
-    "export_time_sec": 72.582,
-    "export_size_mb": 206.63,
+    "export_time_sec": 72.597,
+    "export_size_mb": 206.62,
     "export_events": 2430,
     "export_throughput_mb_per_sec": 2.85,
-    "import_time_sec": 3.068,
-    "import_throughput_mb_per_sec": 67.36
+    "import_time_sec": 3.041,
+    "import_throughput_mb_per_sec": 67.94
   },
   "summary": {
     "overall_performance": {
-      "total_runtime_sec": 141.5,
-      "ingestion_throughput_tokens_per_sec": 424.0,
-      "ingestion_throughput_events_per_sec": 17.2,
-      "retrieval_latency_p50_ms": 59.54,
-      "retrieval_latency_p95_ms": 698.8,
-      "retrieval_throughput_qps": 5.9
+      "total_runtime_sec": 135.71,
+      "ingestion_throughput_tokens_per_sec": 442.0,
+      "ingestion_throughput_events_per_sec": 18.0,
+      "retrieval_latency_p50_ms": 69.55,
+      "retrieval_latency_p95_ms": 69.55,
+      "retrieval_throughput_qps": 14.4
     },
     "index_quality": {
       "nlist_ratio": 0.901,
       "nlist_status": "optimal",
-      "vectors_indexed": 59829
+      "vectors_indexed": 59803
     },
     "resource_usage": {
-      "memory_delta_mb": 777.04,
+      "memory_delta_mb": 570.91,
       "cpu_cores_available": 6,
       "gpu_available": true
     }

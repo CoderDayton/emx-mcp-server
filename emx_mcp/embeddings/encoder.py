@@ -6,7 +6,7 @@ Uses sentence-transformers for efficient, high-quality embeddings.
 import numpy as np
 from typing import List, Optional, TYPE_CHECKING
 import logging
-
+import os
 
 if TYPE_CHECKING:
     import torch
@@ -78,6 +78,11 @@ class EmbeddingEncoder:
             self.torch_available = True
             self.torch = torch
 
+            # Set batch_size and model info early (needed by warmup)
+            self.batch_size = batch_size
+            self.dimension = self.model.get_sentence_embedding_dimension()
+            self.model_name = model_name
+
             # Performance optimization: Use TensorFloat32 for faster matmul on Ampere+ GPUs
             if device == "cuda":
                 self.torch.backends.cuda.matmul.allow_tf32 = True
@@ -88,19 +93,23 @@ class EmbeddingEncoder:
 
             if device == "cuda" and self.torch.__version__ >= "2.0.0":
                 try:
-                    self.model[0].auto_model = self.torch.compile(  # type: ignore
-                        self.model[0].auto_model,
+                    self.model[0].auto_model = self.torch.compile(  # type: ignore[arg-type]
+                        self.model[0].auto_model,  # type: ignore[arg-type]
                         mode="reduce-overhead",
-                        fullgraph=False,  # type: ignore
+                        fullgraph=False,
                     )
                     self._warmup()
                     logger.info("torch.compile enabled on transformer model")
+                except PermissionError as e:
+                    logger.warning(
+                        f"torch.compile failed (nvcc permission denied): {e}, using eager mode"
+                    )
+                except FileNotFoundError as e:
+                    logger.warning(
+                        f"torch.compile failed (nvcc not found): {e}, using eager mode"
+                    )
                 except Exception as e:
                     logger.warning(f"torch.compile failed: {e}, using eager mode")
-
-            self.dimension = self.model.get_sentence_embedding_dimension()
-            self.model_name = model_name
-            self.batch_size = batch_size
 
             logger.info(f"Using provided batch_size={batch_size} for {device.upper()}")
 
@@ -273,8 +282,12 @@ class EmbeddingEncoder:
                 dummy = ["warmup"] * min(10, self.batch_size)
                 for _ in range(3):
                     self.model.encode(
-                        dummy, batch_size=len(dummy), show_progress_bar=False
+                        dummy,
+                        batch_size=len(dummy),
+                        show_progress_bar=False,
+                        convert_to_numpy=False,
                     )
+        logger.debug("Warmup complete.")
 
     def get_device_info(self) -> dict:
         """

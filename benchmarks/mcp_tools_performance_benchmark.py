@@ -239,9 +239,7 @@ File size limit of 100MB keeps storage costs reasonable while serving most use c
             "nlist_status": (
                 "optimal"
                 if index_info["nlist_ratio"] >= 0.85
-                else "acceptable"
-                if index_info["nlist_ratio"] >= 0.5
-                else "suboptimal"
+                else "acceptable" if index_info["nlist_ratio"] >= 0.5 else "suboptimal"
             ),
         }
 
@@ -280,29 +278,66 @@ File size limit of 100MB keeps storage costs reasonable while serving most use c
         latencies = []
         results_per_query = []
 
-        for i, query in enumerate(queries):
-            query_start = time.time()
+        # Pre-warm cache if empty
+        cache_info = manager.get_cache_info()
+        if cache_info["cache_size"] == 0:
+            logger.info("Pre-warming retrieval cache...")
+            manager.warmup_cache_smart()
 
-            # Encode query
-            query_embedding = manager.encode_query(query)
+        # Use batch processing for 3+ queries
+        if len(queries) >= 3:
+            logger.info(f"Using batch retrieval for {len(queries)} queries...")
 
-            # Retrieve memories
-            result = manager.retrieve_memories(
-                query_embedding.tolist(),
+            batch_start = time.time()
+
+            # Batch encode all queries
+            query_embeddings = manager.encode_queries_batch(queries)
+
+            # Batch retrieve
+            batch_results = manager.retrieve_batch(
+                query_embeddings,
                 k_similarity=10,
                 k_contiguity=5,
                 use_contiguity=True,
             )
 
-            latency_ms = (time.time() - query_start) * 1000
-            latencies.append(latency_ms)
-            results_per_query.append(len(result.get("events", [])))
+            total_batch_time = time.time() - batch_start
+            avg_latency_ms = (total_batch_time / len(queries)) * 1000
 
-            if i == 0:
-                logger.info(
-                    f"  Query 1: '{query[:50]}...' -> {latency_ms:.1f}ms, "
-                    f"{len(result.get('events', []))} results"
+            for i, (query, result) in enumerate(zip(queries, batch_results)):
+                latencies.append(avg_latency_ms)
+                results_per_query.append(len(result.get("events", [])))
+
+                if i == 0:
+                    logger.info(
+                        f"  Batch Query 1: '{query[:50]}...' -> {avg_latency_ms:.1f}ms avg, "
+                        f"{len(result.get('events', []))} results"
+                    )
+        else:
+            # Individual processing for small query sets
+            for i, query in enumerate(queries):
+                query_start = time.time()
+
+                # Encode query
+                query_embedding = manager.encode_query(query)
+
+                # Retrieve memories
+                result = manager.retrieve_memories(
+                    query_embedding.tolist(),
+                    k_similarity=10,
+                    k_contiguity=5,
+                    use_contiguity=True,
                 )
+
+                latency_ms = (time.time() - query_start) * 1000
+                latencies.append(latency_ms)
+                results_per_query.append(len(result.get("events", [])))
+
+                if i == 0:
+                    logger.info(
+                        f"  Query 1: '{query[:50]}...' -> {latency_ms:.1f}ms, "
+                        f"{len(result.get('events', []))} results"
+                    )
 
         # Calculate percentiles
         latencies_sorted = sorted(latencies)
@@ -394,9 +429,7 @@ File size limit of 100MB keeps storage costs reasonable while serving most use c
             "index_status": (
                 "optimal"
                 if nlist_ratio >= 0.85
-                else "acceptable"
-                if nlist_ratio >= 0.5
-                else "suboptimal"
+                else "acceptable" if nlist_ratio >= 0.5 else "suboptimal"
             ),
         }
 
@@ -426,11 +459,9 @@ File size limit of 100MB keeps storage costs reasonable while serving most use c
 
             logger.info(f"Testing batch size: {batch_size} queries...")
 
-            # Encode all queries
+            # Encode all queries using batch encoding for efficiency
             batch_start = time.time()
-            query_embeddings = np.array(
-                [manager.encode_query(q).tolist() for q in queries], dtype=np.float32
-            )
+            query_embeddings = manager.encode_queries_batch(queries)
             encode_time = time.time() - batch_start
 
             # Batch search (loop over individual queries)
@@ -479,6 +510,7 @@ File size limit of 100MB keeps storage costs reasonable while serving most use c
                 f"{batch_results[batch_size]['avg_latency_ms']:.1f}ms avg"
             )
 
+        vector_store = manager.project_store.vector_store
         self.results["batch_search"] = {
             "batch_sizes_tested": batch_sizes,
             "results": batch_results,

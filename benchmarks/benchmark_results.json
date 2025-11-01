@@ -1,17 +1,17 @@
 {
   "config": {
     "gamma": 1.0,
-    "batch_size": 512,
+    "batch_size": 1024,
     "device": "cuda",
     "nprobe": 8
   },
   "timings": {
-    "tokenization_sec": 0.0002854109989129938,
-    "storage_sec": 47.377697654002986,
-    "remember_total_sec": 51.4690825630023
+    "tokenization_sec": 0.00037899800008744933,
+    "storage_sec": 41.83086841300019,
+    "remember_total_sec": 52.33004889599988
   },
   "memory": {
-    "remember_delta_mb": 789.8515625
+    "remember_delta_mb": 801.38671875
   },
   "corpus": {
     "total_tokens": 24379
@@ -925,47 +925,47 @@
       24358,
       24378
     ],
-    "time_sec": 4.09094039699994
+    "time_sec": 10.498692726000172
   },
   "indexing": {
     "is_trained": true,
-    "total_vectors": 24386,
+    "total_vectors": 24267,
     "nlist": 562,
-    "optimal_nlist": 624,
-    "nlist_ratio": 0.9006410256410257,
+    "optimal_nlist": 623,
+    "nlist_ratio": 0.9020866773675762,
     "nprobe": 8,
     "use_sq": true,
     "buffered_vectors": 0
   },
   "retrieval": {
     "num_queries": 5,
-    "total_time_sec": 0.168437467997137,
-    "avg_time_ms": 33.6874935994274,
+    "total_time_sec": 0.1385372089998782,
+    "avg_time_ms": 27.70744179997564,
     "results": [
       {
         "query": "debugging database connection pool exhaustion...",
         "num_results": 15,
-        "time_ms": 35.684201000549365
+        "time_ms": 27.680281399989326
       },
       {
         "query": "JWT authentication security best practices...",
         "num_results": 15,
-        "time_ms": 31.94893299951218
+        "time_ms": 27.680281399989326
       },
       {
         "query": "performance optimization JSON serialization...",
         "num_results": 15,
-        "time_ms": 30.158129993651528
+        "time_ms": 27.680281399989326
       },
       {
         "query": "file attachment feature roadmap planning...",
         "num_results": 15,
-        "time_ms": 31.780369994521607
+        "time_ms": 27.680281399989326
       },
       {
         "query": "rate limiting token refresh endpoint...",
         "num_results": 15,
-        "time_ms": 38.6388659971999
+        "time_ms": 27.680281399989326
       }
     ]
   }

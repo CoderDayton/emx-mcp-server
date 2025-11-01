@@ -354,9 +354,9 @@ class TestIntegration:
 
         # Should complete within reasonable time (O(n) is much faster)
         assert total_time < 30.0, f"Test took {total_time:.3f}s (expected < 30s)"
-        assert len(boundaries) >= 2, (
-            f"Found {len(boundaries)} boundaries (expected >= 2)"
-        )
+        assert (
+            len(boundaries) >= 2
+        ), f"Found {len(boundaries)} boundaries (expected >= 2)"
 
         # Should find topic transitions (3 expected, but allow 1-5 for robustness)
         # Boundary detection can be sensitive to embedding similarity and window size
@@ -614,39 +614,81 @@ class TestIntegration:
         ]
 
         print(f"\n  Testing semantic retrieval ({len(test_queries)} queries):")
-        for query_text, expected_section in test_queries:
-            # Encode query
-            query_embedding = manager.encode_query(query_text)
 
-            # Retrieve relevant events
+        # Pre-warm cache for consistent test performance
+        cache_info = manager.get_cache_info()
+        if cache_info["cache_size"] == 0:
+            manager.warmup_cache_smart()
+
+        # Use batch processing for multiple test queries
+        if len(test_queries) >= 3:
+            queries = [query_text for query_text, _ in test_queries]
+
             start_time = time.time()
-            retrieval_result = manager.retrieve_memories(
-                query_embedding=query_embedding.tolist(),
+            query_embeddings = manager.encode_queries_batch(queries)
+            batch_results = manager.retrieve_batch(
+                query_embeddings,
                 k_similarity=3,
                 k_contiguity=2,
                 use_contiguity=True,
             )
             retrieval_time = time.time() - start_time
 
-            # Verify retrieval worked
-            retrieved_events = retrieval_result.get("event_objects", [])
-            assert len(retrieved_events) > 0
+            for i, ((query_text, expected_section), retrieval_result) in enumerate(
+                zip(test_queries, batch_results)
+            ):
+                print(
+                    f"    Batch query {i+1}: '{query_text}' -> {len(retrieval_result.get('events', []))} results"
+                )
 
-            # Check if retrieved tokens contain query-relevant content
-            query_words = set(query_text.split())
-            retrieved_tokens = set()
-            for event in retrieved_events:
-                retrieved_tokens.update(event.tokens)
+                # Verify retrieval worked
+                retrieved_events = retrieval_result.get("event_objects", [])
+                assert len(retrieved_events) > 0
 
-            # At least one query token should appear in retrieved context
-            query_overlap = len(query_words & retrieved_tokens)
-            print(
-                f"    ✓ '{expected_section}': {len(retrieved_events)} events, "
-                f"{query_overlap}/{len(query_words)} terms matched, "
-                f"{retrieval_time * 1000:.1f}ms"
-            )
+                # Check if retrieved tokens contain query-relevant content
+                query_words = set(query_text.split())
+                retrieved_tokens = set()
+                for event in retrieved_events:
+                    retrieved_tokens.update(event.tokens)
 
-            assert query_overlap > 0, f"No semantic overlap for query: {query_text}"
+                overlap = len(query_words & retrieved_tokens)
+                print(f"      Token overlap: {overlap}/{len(query_words)} words")
+                assert overlap > 0, f"No relevant tokens found for query: {query_text}"
+        else:
+            # Individual processing for small test sets
+            for query_text, expected_section in test_queries:
+                # Encode query
+                query_embedding = manager.encode_query(query_text)
+
+                # Retrieve relevant events
+                start_time = time.time()
+                retrieval_result = manager.retrieve_memories(
+                    query_embedding=query_embedding.tolist(),
+                    k_similarity=3,
+                    k_contiguity=2,
+                    use_contiguity=True,
+                )
+                retrieval_time = time.time() - start_time
+
+                # Verify retrieval worked
+                retrieved_events = retrieval_result.get("event_objects", [])
+                assert len(retrieved_events) > 0
+
+                # Check if retrieved tokens contain query-relevant content
+                query_words = set(query_text.split())
+                retrieved_tokens = set()
+                for event in retrieved_events:
+                    retrieved_tokens.update(event.tokens)
+
+                # At least one query token should appear in retrieved context
+                query_overlap = len(query_words & retrieved_tokens)
+                print(
+                    f"    ✓ '{expected_section}': {len(retrieved_events)} events, "
+                    f"{query_overlap}/{len(query_words)} terms matched, "
+                    f"{retrieval_time * 1000:.1f}ms"
+                )
+
+                assert query_overlap > 0, f"No semantic overlap for query: {query_text}"
 
         # Step 5: Verify stream usage metrics
         print("\n  Memory Statistics:")

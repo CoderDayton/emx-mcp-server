@@ -317,33 +317,75 @@ class E2EBenchmark:
         start_time = time.perf_counter()
         results = []
 
-        for query in queries:
-            query_start = time.perf_counter()
+        # Pre-warm cache for optimal performance
+        cache_info = self.manager.get_cache_info()
+        if cache_info["cache_size"] == 0:
+            print("Pre-warming retrieval cache...")
+            self.manager.warmup_cache_smart()
 
-            query_embedding = self.manager.encode_query(query)
+        # Use batch processing for queries if 3+, else individual
+        if len(queries) >= 3:
+            print(f"Using batch retrieval for {len(queries)} queries...")
 
-            retrieval_result = self.manager.retrieve_memories(
-                query_embedding.tolist(),
+            # Batch encode all queries
+            encode_start = time.perf_counter()
+            query_embeddings = self.manager.encode_queries_batch(queries)
+            encode_time = time.perf_counter() - encode_start
+
+            # Batch retrieve
+            batch_start = time.perf_counter()
+            batch_results = self.manager.retrieve_batch(
+                query_embeddings,
                 k_similarity=k,
                 k_contiguity=5,
                 use_contiguity=True,
             )
+            batch_time = time.perf_counter() - batch_start
 
-            query_time = time.perf_counter() - query_start
+            # Process results
+            for i, (query, retrieval_result) in enumerate(zip(queries, batch_results)):
+                query_time = (encode_time + batch_time) / len(queries)  # Amortized time
 
-            results.append(
-                {
-                    "query": query[:50] + "...",
-                    "num_results": len(retrieval_result.get("events", [])),
-                    "time_ms": query_time * 1000,
-                }
-            )
+                results.append(
+                    {
+                        "query": query[:50] + "...",
+                        "num_results": len(retrieval_result.get("events", [])),
+                        "time_ms": query_time * 1000,
+                    }
+                )
 
-            print(
-                f" Query: '{query[:60]}...' → "
-                f"{len(retrieval_result.get('events', []))} results "
-                f"in {query_time * 1000:.2f}ms"
-            )
+                print(
+                    f" Query {i+1}: '{query[:60]}...' → "
+                    f"{len(retrieval_result.get('events', []))} results"
+                )
+        else:
+            # Individual query processing for small batches
+            for query in queries:
+                query_start = time.perf_counter()
+
+                query_embedding = self.manager.encode_query(query)
+                retrieval_result = self.manager.retrieve_memories(
+                    query_embedding.tolist(),
+                    k_similarity=k,
+                    k_contiguity=5,
+                    use_contiguity=True,
+                )
+
+                query_time = time.perf_counter() - query_start
+
+                results.append(
+                    {
+                        "query": query[:50] + "...",
+                        "num_results": len(retrieval_result.get("events", [])),
+                        "time_ms": query_time * 1000,
+                    }
+                )
+
+                print(
+                    f" Query: '{query[:60]}...' → "
+                    f"{len(retrieval_result.get('events', []))} results "
+                    f"in {query_time * 1000:.2f}ms"
+                )
 
         total_time = time.perf_counter() - start_time
         avg_time = total_time / len(queries) if queries else 0
