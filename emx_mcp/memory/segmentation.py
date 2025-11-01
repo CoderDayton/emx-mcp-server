@@ -29,6 +29,9 @@ class SurpriseSegmenter:
         self,
         gamma: float = 1.0,
         window_offset: int = 128,
+        enable_refinement: bool = True,
+        refinement_metric: str = "modularity",
+        max_refinement_window: int = 512,
     ):
         """
         Initialize surprise segmenter.
@@ -36,10 +39,25 @@ class SurpriseSegmenter:
         Args:
             gamma: Surprise threshold sensitivity (higher = fewer boundaries)
             window_offset: Window size for adaptive threshold calculation
+            enable_refinement: Enable graph-theoretic boundary refinement (Algorithm 1)
+            refinement_metric: Metric for refinement ('modularity' or 'conductance')
+            max_refinement_window: Maximum tokens per refinement chunk (controls complexity)
         """
         self.gamma = gamma
         self.window_offset = window_offset
-        logger.info(f"SurpriseSegmenter initialized (gamma={gamma}, O(n) complexity)")
+        self.enable_refinement = enable_refinement
+        self.refinement_metric = refinement_metric
+        self.max_refinement_window = max_refinement_window
+
+        complexity_note = (
+            f"O(n) base + O(nm) refinement (m={max_refinement_window})"
+            if enable_refinement
+            else "O(n) only"
+        )
+        logger.info(
+            f"SurpriseSegmenter initialized (gamma={gamma}, "
+            f"refinement={enable_refinement}, metric={refinement_metric}, {complexity_note})"
+        )
 
     def compute_surprise(self, token_probs: np.ndarray) -> np.ndarray:
         """
@@ -112,8 +130,25 @@ class SurpriseSegmenter:
             boundaries.append(len(tokens) - 1)
 
         logger.info(
-            f"Identified {len(boundaries)} boundaries from {len(tokens)} tokens (O(n) method)"
+            f"Identified {len(boundaries)} surprise-based boundaries from {len(tokens)} tokens"
         )
+
+        # Apply boundary refinement if enabled (Algorithm 1 from paper)
+        if (
+            self.enable_refinement
+            and token_embeddings is not None
+            and len(boundaries) > 2
+        ):
+            logger.debug(
+                f"Applying {self.refinement_metric} refinement to {len(boundaries)} boundaries..."
+            )
+            boundaries = self._refine_boundaries(
+                token_embeddings, boundaries, metric=self.refinement_metric
+            )
+            logger.info(
+                f"Refined to {len(boundaries)} boundaries using {self.refinement_metric} "
+                f"(O(nm) where m={self.max_refinement_window})"
+            )
 
         return boundaries
 
@@ -350,7 +385,7 @@ class SurpriseSegmenter:
         Returns:
             Adjacency matrix of shape (n_tokens, n_tokens) with values in [0, 1]
 
-        Complexity: O(n²) - matrix multiplication, but needed for future use
+        Complexity: O(m²) where m = chunk size (controlled by max_refinement_window)
         """
         # Normalize embeddings to unit vectors for cosine similarity
         norms = np.linalg.norm(token_embeddings, axis=1, keepdims=True)
@@ -366,3 +401,193 @@ class SurpriseSegmenter:
         np.fill_diagonal(adjacency, 1.0)
 
         return adjacency
+
+    # ========================
+    # Boundary Refinement (Algorithm 1 from EM-LLM Paper)
+    # ========================
+
+    def _refine_boundaries(
+        self,
+        token_embeddings: np.ndarray,
+        boundaries: List[int],
+        metric: str = "modularity",
+    ) -> List[int]:
+        """
+        Refine event boundaries using graph-theoretic metrics (Algorithm 1).
+
+        Implements the boundary refinement step from the paper:
+        - For each pair of consecutive boundaries (α, β), find optimal position β'
+        - Optimize modularity (Eq. 3) or conductance (Eq. 4)
+        - Process in chunks to maintain O(nm) complexity
+
+        Args:
+            token_embeddings: Array of shape (n_tokens, embedding_dim)
+            boundaries: Initial surprise-based boundaries
+            metric: 'modularity' (maximize) or 'conductance' (minimize)
+
+        Returns:
+            Refined boundary positions
+
+        Complexity: O(nm) where n = total tokens, m = max_refinement_window
+        """
+        refined_boundaries = [boundaries[0]]  # Keep first boundary
+
+        for i in range(len(boundaries) - 1):
+            alpha = boundaries[i]
+            beta = boundaries[i + 1]
+            segment_length = beta - alpha
+
+            # Skip refinement for very short or very long segments
+            if segment_length < 10 or segment_length > self.max_refinement_window:
+                refined_boundaries.append(beta)
+                continue
+
+            # Extract segment embeddings
+            segment_embeddings = token_embeddings[alpha:beta]
+
+            # Compute adjacency matrix for this segment (O(m²) where m = segment_length)
+            adjacency = self._compute_embedding_adjacency(segment_embeddings)
+
+            # Find optimal boundary within segment
+            if metric == "modularity":
+                optimal_offset = self._optimize_modularity(adjacency, alpha, beta)
+            elif metric == "conductance":
+                optimal_offset = self._optimize_conductance(adjacency, alpha, beta)
+            else:
+                optimal_offset = beta - alpha  # Fallback: keep original
+
+            optimal_boundary = alpha + optimal_offset
+            refined_boundaries.append(optimal_boundary)
+
+        return refined_boundaries
+
+    def _optimize_modularity(self, adjacency: np.ndarray, alpha: int, beta: int) -> int:
+        """
+        Find boundary position that maximizes modularity (Equation 3).
+
+        Modularity Q = (1/4m) Σ [A_ij - (Σ_k A_ik · Σ_k A_jk)/(2m)] δ(c_i, c_j)
+
+        Where:
+        - A_ij = adjacency (similarity) between tokens i and j
+        - m = total edge weight
+        - δ(c_i, c_j) = 1 if same community, 0 otherwise
+
+        Args:
+            adjacency: Similarity matrix for segment
+            alpha, beta: Segment start/end positions (for logging)
+
+        Returns:
+            Optimal boundary offset within segment (relative to alpha)
+
+        Complexity: O(m²) where m = segment length
+        """
+        n = adjacency.shape[0]
+        if n < 2:
+            return n
+
+        # Total edge weight
+        total_weight = np.sum(adjacency) / 2.0  # Divide by 2 for undirected graph
+
+        if total_weight == 0:
+            return n // 2  # Fallback: split in half
+
+        # Compute degree for each node
+        degrees = np.sum(adjacency, axis=1)
+
+        best_modularity = -float("inf")
+        best_position = n // 2  # Default: middle
+
+        # Try each possible boundary position (excluding extremes)
+        # This is the "argmax" operation from Algorithm 1
+        for split_pos in range(1, n):
+            # Community assignment: [0, split_pos) = community 1, [split_pos, n) = community 2
+            community = np.zeros(n, dtype=int)
+            community[split_pos:] = 1
+
+            # Compute modularity for this split
+            modularity = 0.0
+            for i in range(n):
+                for j in range(i, n):  # Only upper triangle (symmetric)
+                    if community[i] == community[j]:  # Same community
+                        # Expected edge weight under null model
+                        expected = (degrees[i] * degrees[j]) / (2 * total_weight)
+                        # Actual - Expected
+                        contribution = adjacency[i, j] - expected
+
+                        # Double count off-diagonal elements
+                        if i != j:
+                            modularity += 2 * contribution
+                        else:
+                            modularity += contribution
+
+            modularity /= 4 * total_weight
+
+            if modularity > best_modularity:
+                best_modularity = modularity
+                best_position = split_pos
+
+        logger.debug(
+            f"Modularity optimization: position {alpha + best_position} "
+            f"(Q={best_modularity:.4f}) in segment [{alpha}, {beta})"
+        )
+
+        return best_position
+
+    def _optimize_conductance(
+        self, adjacency: np.ndarray, alpha: int, beta: int
+    ) -> int:
+        r"""
+        Find boundary position that minimizes conductance (Equation 4).
+
+        Conductance φ(S) = cut(S, V\S) / min(vol(S), vol(V\S))
+
+        Where:
+        - cut(S, V\S) = Σ_{i∈S, j∉S} A_ij (edges crossing boundary)
+        - vol(S) = Σ_{i,j∈S} A_ij (volume of subset S)
+
+        Lower conductance = better community structure.
+
+        Args:
+            adjacency: Similarity matrix for segment
+            alpha, beta: Segment start/end positions (for logging)
+
+        Returns:
+            Optimal boundary offset within segment (relative to alpha)
+
+        Complexity: O(m²) where m = segment length
+        """
+        n = adjacency.shape[0]
+        if n < 2:
+            return n
+
+        best_conductance = float("inf")
+        best_position = n // 2  # Default: middle
+
+        # Try each possible boundary position
+        for split_pos in range(1, n):
+            # Subset S = [0, split_pos), V\S = [split_pos, n)
+
+            # Compute cut: edges between S and V\S
+            cut = np.sum(adjacency[:split_pos, split_pos:])
+
+            # Compute volumes
+            vol_s = np.sum(adjacency[:split_pos, :split_pos])
+            vol_vs = np.sum(adjacency[split_pos:, split_pos:])
+
+            # Avoid division by zero
+            min_vol = min(vol_s, vol_vs)
+            if min_vol < 1e-8:
+                continue
+
+            conductance = cut / min_vol
+
+            if conductance < best_conductance:
+                best_conductance = conductance
+                best_position = split_pos
+
+        logger.debug(
+            f"Conductance optimization: position {alpha + best_position} "
+            f"(φ={best_conductance:.4f}) in segment [{alpha}, {beta})"
+        )
+
+        return best_position
