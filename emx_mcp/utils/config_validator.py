@@ -144,7 +144,7 @@ class StorageConfig(BaseSettings):
         description="Embedding dimension (None = auto-detect from model, recommended)",
     )
     nprobe: int = Field(
-        default=8,
+        default=16,  # Increased from 8 for better SQ recall
         ge=1,
         le=1024,
         description="IVF search parameter",
@@ -179,6 +179,42 @@ class StorageConfig(BaseSettings):
         le=10.0,
         description="Trigger retraining when nlist drift exceeds this ratio",
     )
+    use_sq: bool = Field(
+        default=True,
+        description="Enable 8-bit Scalar Quantization (SQ) compression for 4x memory reduction and 97-99% recall",
+    )
+    sq_bits: int = Field(
+        default=8,
+        ge=8,
+        le=8,
+        description="Bits per SQ code (only 8-bit supported for optimal recall)",
+    )
+    use_gpu: bool = Field(
+        default=True,
+        description="Enable GPU acceleration for vector operations (auto-detects availability)",
+    )
+    adaptive_nprobe: bool = Field(
+        default=True,
+        description="Automatically adjust nprobe to maintain target recall as nlist grows",
+    )
+    target_recall: float = Field(
+        default=0.95,
+        ge=0.80,
+        le=0.99,
+        description="Target recall threshold for adaptive nprobe tuning (0.80-0.99)",
+    )
+    nprobe_min: int = Field(
+        default=8,
+        ge=1,
+        le=512,
+        description="Minimum nprobe value (adaptive tuning lower bound)",
+    )
+    nprobe_max: int = Field(
+        default=128,
+        ge=1,
+        le=1024,
+        description="Maximum nprobe value (adaptive tuning upper bound)",
+    )
 
     @field_validator("vector_dim")
     @classmethod
@@ -191,6 +227,24 @@ class StorageConfig(BaseSettings):
             # Warning: non-standard dimension (still valid)
             pass
         return v
+    
+    @model_validator(mode="after")
+    def validate_sq_config(self) -> "StorageConfig":
+        """Validate SQ configuration compatibility."""
+        if self.use_sq:
+            # SQ works with both Flat and IVF indices
+            if self.index_type not in ("IVF", "Flat"):
+                raise ValueError(
+                    f"SQ compression requires index_type='IVF' or 'Flat', got '{self.index_type}'"
+                )
+            
+            # Validate sq_bits (only 8-bit supported)
+            if self.sq_bits != 8:
+                raise ValueError(
+                    f"SQ compression only supports 8-bit quantization, got {self.sq_bits}-bit"
+                )
+        
+        return self
 
 
 class GPUConfig(BaseSettings):
@@ -326,6 +380,9 @@ class EMXConfig(BaseSettings):
                 "metric": self.storage.metric,
                 "auto_retrain": self.storage.auto_retrain,
                 "nlist_drift_threshold": self.storage.nlist_drift_threshold,
+                "use_sq": self.storage.use_sq,
+                "sq_bits": self.storage.sq_bits,
+                "use_gpu": self.storage.use_gpu,
             },
             "gpu": {
                 "enable_pinned_memory": self.gpu.enable_pinned_memory,

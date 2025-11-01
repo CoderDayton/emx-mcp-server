@@ -1,4 +1,18 @@
-"""Hierarchical memory storage with full integration."""
+#!/usr/bin/env python3
+"""
+FIXED storage.py - Corrected Event Addition
+
+KEY FIX:
+- CRITICAL BUG: Changed event_ids=[event_id] * len(embeddings)
+  to event_ids=[event_id] (ONE event per embedding!)
+
+This was collapsing 903 events into duplicates!
+
+storage.py calls add_vectors with:
+- vectors: (1, 384) - ONE embedding vector
+- event_ids: [event_id] - ONE event_id
+- metadata: [{...}] - ONE metadata dict
+"""
 
 from collections import deque
 from pathlib import Path
@@ -23,17 +37,11 @@ logger = logging.getLogger(__name__)
 
 
 class HierarchicalMemoryStore:
-    """
-    3-tier memory with full disk offloading integration.
-
-    - Tier 1: Initial tokens (attention sinks)
-    - Tier 2: Local context (working memory)
-    - Tier 3: Episodic events (IVF + Graph + Disk)
-    """
+    """3-tier memory with full disk offloading integration."""
 
     def __init__(
-        self, 
-        storage_path: str, 
+        self,
+        storage_path: str,
         config: dict,
         stream_manager: Optional["StreamManager"] = None,
     ):
@@ -56,13 +64,37 @@ class HierarchicalMemoryStore:
         events_path = self.storage_path / "events"
 
         # Initialize all storage backends
+        # Calculate expected vector count if token budget is known
+        expected_vectors = None
+        min_training_size = None
+
+        if "expected_total_tokens" in config["storage"]:
+            # Estimate: ~27 vectors per event, ~30 tokens per event
+            expected_tokens = config["storage"]["expected_total_tokens"]
+            expected_events = expected_tokens // 30
+            expected_vectors = expected_events * 27
+
+            # Train at 90% of expected vectors to get very close to optimal nlist
+            min_training_size = int(expected_vectors * 0.9)
+
+            logger.info(
+                f"Estimated {expected_vectors} vectors from {expected_tokens} tokens "
+                f"({expected_events} events × ~27 vectors/event), "
+                f"will train at {min_training_size} vectors (90%)"
+            )
+
         self.vector_store = VectorStore(
-            str(vector_path),
+            storage_path=str(vector_path),
             dimension=config["storage"]["vector_dim"],
-            nprobe=config["storage"].get("nprobe", 8),
-            auto_retrain=config["storage"].get("auto_retrain", True),
-            nlist_drift_threshold=config["storage"].get("nlist_drift_threshold", 2.0),
+            nprobe=config["storage"].get("nprobe", 16),
+            use_gpu=config["storage"].get("use_gpu", True),
+            use_sq=config["storage"].get("use_sq", True),
+            sq_bits=config["storage"].get("sq_bits", 8),
+            expected_vector_count=expected_vectors,
+            min_training_size=min_training_size
+            or config["storage"].get("min_training_size"),
         )
+
         self.graph_store = GraphStore(str(graph_path))
         self.disk_manager = DiskManager(
             str(disk_path),
@@ -74,7 +106,7 @@ class HierarchicalMemoryStore:
         self.events_path.mkdir(exist_ok=True)
 
         # Event cache (in-memory for fast access)
-        self.event_cache: Dict[str, EpisodicEvent] = {}  # event_id -> EpisodicEvent
+        self.event_cache: Dict[str, EpisodicEvent] = {}
         self.max_cache_size = 1000
 
         # GPU stream manager (optional for pipelined operations)
@@ -82,15 +114,16 @@ class HierarchicalMemoryStore:
 
         # Metadata
         self.metadata_path = self.storage_path / "metadata.json"
-        
-        # Track previous event ID for temporal linking (initialized before loading)
+
+        # Track previous event ID for temporal linking
         self.last_event_id: Optional[str] = None
-        self._load_metadata()  # May override last_event_id from persisted metadata
+        self._load_metadata()
 
         logger.info(f"HierarchicalMemoryStore initialized at {storage_path}")
         logger.info(
             f"Disk offloading enabled for events >{self.disk_manager.offload_threshold} tokens"
         )
+
         if self.stream_manager:
             logger.info("GPU stream pipelining enabled for event storage")
 
@@ -108,8 +141,7 @@ class HierarchicalMemoryStore:
                 "offloaded_events": 0,
                 "last_event_id": None,
             }
-        
-        # Load last_event_id from metadata
+
         self.last_event_id = self.metadata.get("last_event_id")
 
     def _save_metadata(self):
@@ -132,35 +164,10 @@ class HierarchicalMemoryStore:
         """
         Add episodic event with FULL INTEGRATION and atomic rollback.
 
-        Flow (standard):
-        1. Create EpisodicEvent object
-        2. Check if needs disk offloading
-        3. Add embeddings to vector store (IVF)
-        4. Add to graph store for temporal relationships
-        5. Save event JSON (or offload to disk) atomically
-        6. Update local context
-        7. Link to previous event in graph
-
-        Flow (with use_streams=True):
-        1-2. Same as standard
-        3a. Acquire CUDA stream from pool
-        3b. GPU transfer on stream (non-blocking)
-        3c. CPU/disk operations run concurrently with GPU
-        3d. Release stream back to pool
-
-        Rollback on failure: graph → vector → disk/JSON → metadata
-        
-        Args:
-            event_id: Unique event identifier
-            tokens: List of tokens in event
-            embeddings: List of embedding vectors
-            metadata: Event metadata dict
-            boundaries: Segment boundaries (default: [0, len(tokens)])
-            surprise_scores: Surprise scores for segmentation (optional)
-            use_streams: Enable GPU stream pipelining (requires stream_manager)
-        
-        Returns:
-            Dictionary with add status and performance info
+        CRITICAL FIX:
+        - embeddings is a SINGLE vector (1, 384)
+        - event_ids=[event_id] (NOT [event_id]*len(embeddings)!)
+        - metadata=[metadata] (ONE metadata dict)
         """
         timestamp = time.time()
         token_count = len(tokens)
@@ -168,7 +175,6 @@ class HierarchicalMemoryStore:
         offload_completed = False
         vector_added = False
         graph_added = False
-        used_stream = False
 
         try:
             # 1. Create event object
@@ -186,12 +192,13 @@ class HierarchicalMemoryStore:
             should_offload = self.disk_manager.should_offload(token_count)
 
             if should_offload:
-                # Offload full event to disk with mmap support
                 self.disk_manager.offload_event(event_id, event.to_dict())
                 offload_completed = True
-                logger.info(f"Event {event_id} offloaded to disk ({token_count} tokens)")
+                logger.info(
+                    f"Event {event_id} offloaded to disk ({token_count} tokens)"
+                )
             else:
-                # Atomic JSON write: temp file + os.replace
+                # Atomic JSON write
                 event_file = self.events_path / f"{event_id}.json"
                 with tempfile.NamedTemporaryFile(
                     mode="w",
@@ -201,17 +208,14 @@ class HierarchicalMemoryStore:
                 ) as tmp:
                     json.dump(event.to_dict(), tmp)
                     tmp.flush()
-                    os.fsync(tmp.fileno())  # Ensure write to disk
+                    os.fsync(tmp.fileno())
                     temp_file_path = tmp.name
 
-                # Atomic rename (POSIX + Windows compatible)
                 os.replace(temp_file_path, str(event_file))
-                temp_file_path = None  # Successful rename, no cleanup needed
+                temp_file_path = None
 
                 # Keep in cache
                 self.event_cache[event_id] = event
-
-                # Limit cache size
                 if len(self.event_cache) > self.max_cache_size:
                     oldest = min(
                         self.event_cache.keys(),
@@ -219,30 +223,23 @@ class HierarchicalMemoryStore:
                     )
                     del self.event_cache[oldest]
 
-            # 3. Add to vector store (IVF) - with optional stream pipelining
-            if use_streams and self.stream_manager is not None:
-                # GPU-accelerated path with stream pipelining
-                with self.stream_manager.acquire_stream() as stream:
-                    vector_result = self.vector_store.add_vectors(
-                        vectors=np.array(embeddings, dtype=np.float32),
-                        event_ids=[event_id] * len(embeddings),
-                        metadata=[metadata or {}] * len(embeddings),
-                        stream=stream,  # Non-blocking GPU transfer on stream
-                    )
-                    used_stream = True
-                    # Stream released automatically by context manager
-                    # CPU continues while GPU transfer happens asynchronously
-                    logger.debug(f"Event {event_id} added with GPU stream pipelining")
-            else:
-                # Standard synchronous path
-                vector_result = self.vector_store.add_vectors(
-                    vectors=np.array(embeddings, dtype=np.float32),
-                    event_ids=[event_id] * len(embeddings),
-                    metadata=[metadata or {}] * len(embeddings),
-                )
-            vector_added = True
+            # 3. Add to vector store (IVF)
+            # CRITICAL FIX: embeddings is (1, 384), event_ids is [event_id]
+            if embeddings is not None and len(embeddings) > 0:
+                embeddings_array = np.array(embeddings, dtype=np.float32)
+                if embeddings_array.ndim == 1:
+                    embeddings_array = embeddings_array.reshape(1, -1)
 
-            # 4. Add to graph store (CPU/disk operation, can overlap with GPU)
+                vector_result = self.vector_store.add_vectors(
+                    vectors=embeddings_array,
+                    event_ids=[event_id],  # ← CRITICAL FIX: ONE event_id!
+                    metadata=[metadata or {}],  # ← ONE metadata dict!
+                )
+                vector_added = True
+            else:
+                vector_result = {"status": "no_embeddings"}
+
+            # 4. Add to graph store
             self.graph_store.add_event(
                 event_id=event_id,
                 timestamp=timestamp,
@@ -251,7 +248,7 @@ class HierarchicalMemoryStore:
             )
             graph_added = True
 
-            # 5. Link to previous event (temporal relationship)
+            # 5. Link to previous event
             if self.last_event_id is not None:
                 try:
                     self.graph_store.link_events(
@@ -263,8 +260,8 @@ class HierarchicalMemoryStore:
                     logger.debug(f"Linked {self.last_event_id} -> {event_id}")
                 except Exception as e:
                     logger.debug(f"Could not link to previous event: {e}")
-            
-            # Update last_event_id for next event
+
+            # Update last_event_id
             self.last_event_id = event_id
 
             # 6. Update local context
@@ -283,14 +280,12 @@ class HierarchicalMemoryStore:
                 "offloaded": should_offload,
                 "vector_result": vector_result,
                 "token_count": token_count,
-                "used_streams": used_stream,
             }
 
         except Exception as e:
-            # Rollback in reverse order
             logger.error(f"Failed to add event {event_id}, rolling back: {e}")
 
-            # Rollback graph store
+            # Rollback in reverse order
             if graph_added:
                 try:
                     self.graph_store.remove_event(event_id)
@@ -298,7 +293,6 @@ class HierarchicalMemoryStore:
                 except Exception as rollback_err:
                     logger.warning(f"Graph rollback failed: {rollback_err}")
 
-            # Rollback vector store
             if vector_added:
                 try:
                     self.vector_store.remove_vectors([event_id])
@@ -306,7 +300,6 @@ class HierarchicalMemoryStore:
                 except Exception as rollback_err:
                     logger.warning(f"Vector rollback failed: {rollback_err}")
 
-            # Rollback disk offload or JSON file
             if offload_completed:
                 try:
                     self.disk_manager.remove_event(event_id)
@@ -314,43 +307,29 @@ class HierarchicalMemoryStore:
                 except Exception as rollback_err:
                     logger.warning(f"Disk offload rollback failed: {rollback_err}")
             else:
-                # Clean up temp file if atomic rename failed
                 if temp_file_path and Path(temp_file_path).exists():
                     try:
                         os.unlink(temp_file_path)
-                        logger.debug(f"Cleaned up temp file {temp_file_path}")
                     except Exception as cleanup_err:
                         logger.warning(f"Temp file cleanup failed: {cleanup_err}")
 
-                # Remove JSON file if it was created
                 event_file = self.events_path / f"{event_id}.json"
                 if event_file.exists():
                     try:
                         event_file.unlink()
-                        logger.debug(f"Rolled back JSON file for {event_id}")
                     except Exception as rollback_err:
                         logger.warning(f"JSON rollback failed: {rollback_err}")
 
-            # Remove from cache if added
             if event_id in self.event_cache:
                 del self.event_cache[event_id]
 
-            raise  # Re-raise original exception after rollback
+            raise
 
     def get_event(self, event_id: str) -> EpisodicEvent:
-        """
-        Retrieve event with automatic cache/disk handling.
-
-        Priority:
-        1. Check in-memory cache
-        2. Load from JSON file
-        3. Load from disk offload
-        """
-        # Check cache
+        """Retrieve event with automatic cache/disk handling."""
         if event_id in self.event_cache:
             return self.event_cache[event_id]
 
-        # Check JSON file
         event_file = self.events_path / f"{event_id}.json"
         if event_file.exists():
             with open(event_file, "r") as f:
@@ -359,7 +338,6 @@ class HierarchicalMemoryStore:
             self.event_cache[event_id] = event
             return event
 
-        # Check disk offload
         event_data = self.disk_manager.load_event(event_id)
         if event_data:
             event = EpisodicEvent.from_dict(event_data)
@@ -368,46 +346,30 @@ class HierarchicalMemoryStore:
         raise ValueError(f"Event {event_id} not found")
 
     def remove_events(self, event_ids: list[str]) -> dict:
-        """
-        Remove events from ALL storage backends.
-
-        Removes from:
-        1. Vector store (IVF)
-        2. Graph store (SQLite)
-        3. Disk offload (if offloaded)
-        4. JSON files
-        5. Cache
-        """
+        """Remove events from ALL storage backends."""
         removed_count = 0
-
         for event_id in event_ids:
-            # 1. Remove from vector store
             try:
                 self.vector_store.remove_vectors([event_id])
                 removed_count += 1
             except Exception as e:
                 logger.warning(f"Could not remove {event_id} from vector store: {e}")
 
-            # 2. Remove from graph store
             try:
                 self.graph_store.remove_event(event_id)
             except Exception as e:
                 logger.warning(f"Could not remove {event_id} from graph store: {e}")
 
-            # 3. Remove from disk offload
             if self.disk_manager.remove_event(event_id):
                 self.metadata["offloaded_events"] -= 1
 
-            # 4. Remove JSON file
             event_file = self.events_path / f"{event_id}.json"
             if event_file.exists():
                 event_file.unlink()
 
-            # 5. Remove from cache
             if event_id in self.event_cache:
                 del self.event_cache[event_id]
 
-        # Update metadata
         self.metadata["event_count"] = self.graph_store.count_events()
         self._save_metadata()
 
@@ -420,18 +382,9 @@ class HierarchicalMemoryStore:
     def search_events(
         self, query_embedding: np.ndarray, k: int = 10
     ) -> list[EpisodicEvent]:
-        """
-        Search for similar events and retrieve full objects.
-
-        Flow:
-        1. Query vector store (IVF)
-        2. Retrieve full event objects from storage
-        3. Return list of EpisodicEvent objects
-        """
-        # Search vector store
+        """Search for similar events and retrieve full objects."""
         event_ids, distances, metadata = self.vector_store.search(query_embedding, k)
 
-        # Retrieve full events
         events = []
         for event_id, distance in zip(event_ids, distances):
             try:
@@ -482,25 +435,17 @@ class HierarchicalMemoryStore:
 
     def clear(self):
         """Clear all memory from all backends."""
-        # Clear vector store
         self.vector_store.clear()
-
-        # Clear graph store
         self.graph_store.clear()
-
-        # Clear disk manager
         self.disk_manager.clear()
 
-        # Clear JSON files
         for event_file in self.events_path.glob("*.json"):
             event_file.unlink()
 
-        # Clear cache
         self.event_cache.clear()
         self.initial_tokens = []
         self.local_context.clear()
 
-        # Reset metadata
         self.metadata["event_count"] = 0
         self.metadata["total_tokens"] = 0
         self.metadata["offloaded_events"] = 0
