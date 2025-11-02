@@ -609,11 +609,11 @@ class TestIntegration:
 
             start_time = time.time()
             query_embeddings = manager.encode_queries_batch(queries)
-            batch_results = manager.retrieve_batch(
+            batch_results = manager.retrieve_memories_batch(
                 query_embeddings,
                 k_similarity=3,
                 k_contiguity=2,
-                use_contiguity=True,
+                use_contiguity=False,
             )
             retrieval_time = time.time() - start_time
 
@@ -648,10 +648,10 @@ class TestIntegration:
                 # Retrieve relevant events
                 start_time = time.time()
                 retrieval_result = manager.retrieve_memories(
-                    query_embedding=query_embedding.tolist(),
+                    query_embedding=query_embedding,
                     k_similarity=3,
                     k_contiguity=2,
-                    use_contiguity=True,
+                    use_contiguity=False,
                 )
                 retrieval_time = time.time() - start_time
 

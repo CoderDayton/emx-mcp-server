@@ -155,7 +155,7 @@ File size limit of 100MB keeps storage costs reasonable while serving most use c
         target = self.corpus_size
 
         while current_tokens < target:
-            for _seg_type, content in segments.items():
+            for content in segments.values():
                 tokens = content.split()
                 corpus_parts.append(content)
                 current_tokens += len(tokens)
@@ -260,7 +260,6 @@ File size limit of 100MB keeps storage costs reasonable while serving most use c
 
         retrieval = manager.retrieval
 
-        logger.info("Warming up cache...")
         retrieval.warmup_cache_manual(num_passes=5)
         retrieval.print_cache_stats()
 
@@ -297,11 +296,11 @@ File size limit of 100MB keeps storage costs reasonable while serving most use c
             query_embeddings = manager.encode_queries_batch(queries)
 
             # Batch retrieve
-            batch_results = retrieval.retrieve_batch(
+            batch_results = manager.retrieve_memories_batch(
                 query_embeddings,
                 k_similarity=10,
-                k_contiguity=5,
-                use_contiguity=True,
+                k_contiguity=2,
+                use_contiguity=False,
             )
 
             total_batch_time = time.time() - batch_start
@@ -456,8 +455,9 @@ File size limit of 100MB keeps storage costs reasonable while serving most use c
         for batch_size in batch_sizes:
             # Generate batch of queries
             queries = []
-            for i in range(batch_size):
-                queries.append(base_queries[i % len(base_queries)] + f" variant {i}")
+            queries.extend(
+                f"{base_queries[i % len(base_queries)]} variant {i}" for i in range(batch_size)
+            )
 
             logger.info(f"Testing batch size: {batch_size} queries...")
 

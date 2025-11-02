@@ -16,6 +16,7 @@ from collections import OrderedDict
 from typing import Any
 
 import numpy as np
+from numpy.typing import NDArray
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +48,7 @@ class CachedBatchRetrieval:
 
     def retrieve(
         self,
-        query_embedding: list[float],
+        query_embedding: list[float] | NDArray[np.float32],
         k_similarity: int,
         k_contiguity: int,
         use_contiguity: bool,

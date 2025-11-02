@@ -375,11 +375,11 @@ class E2EBenchmark:
 
         # Batch retrieve
         batch_start = time.perf_counter()
-        batch_results = self.manager.retrieve_batch(
+        batch_results = self.manager.retrieve_memories_batch(
             query_embeddings,
             k_similarity=k,
-            k_contiguity=5,
-            use_contiguity=True,
+            k_contiguity=2,
+            use_contiguity=False,
         )
         batch_time = time.perf_counter() - batch_start
 

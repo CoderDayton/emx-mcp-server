@@ -135,20 +135,7 @@ class DiskManager:
         # Check mmap cache
         if event_id in self.mmap_cache:
             mm, fh = self.mmap_cache[event_id]
-            # Read header to get data offset and size
-            mm.seek(0)
-            header = struct.unpack("IQQ", mm.read(self.HEADER_SIZE))
-            version, data_offset, data_size = header
-
-            # Read data
-            mm.seek(data_offset)
-            data_bytes = mm.read(data_size)
-            # Security: This pickle data is generated internally by our
-            # system, not from untrusted sources
-            event_data = pickle.loads(data_bytes)  # nosec B301 - Internal
-
-            logger.debug(f"Loaded {event_id} from mmap cache")
-            return event_data
+            return self._read_event_from_file(mm, event_id, " from mmap cache")
 
         # Open new mmap with guaranteed cleanup on exception
         fh = open(file_path, "r+b")  # noqa: SIM115 - intentional for mmap caching
@@ -166,47 +153,35 @@ class DiskManager:
 
                 self.mmap_cache[event_id] = (mm, fh)
 
-                # Read header
-                mm.seek(0)
-                header = struct.unpack("IQQ", mm.read(self.HEADER_SIZE))
-                version, data_offset, data_size = header
-
-                # Read data
-                mm.seek(data_offset)
-                data_bytes = mm.read(data_size)
-                # Security: pickle data is generated internally by our
-                # system, not from untrusted sources
-                event_data = pickle.loads(  # nosec B301 - Internal
-                    data_bytes
-                )
-
-                logger.debug(f"Loaded {event_id} from disk with mmap")
-                return event_data
+                return self._read_event_from_file(mm, event_id, " from disk with mmap")
             except Exception:
-                # Cleanup on failure (not cached yet or partially cached)
                 mm.close()
                 raise
         except Exception:
-            # Cleanup file handle on mmap creation failure
             fh.close()
             raise
+
+    def _read_event_from_file(self, file_obj, event_id: str, source_msg: str) -> dict:
+        """Read event data from file object (mmap or regular file)."""
+        file_obj.seek(0)
+        event_data = self._deserialize_event_data(file_obj)
+        logger.debug(f"Loaded {event_id}{source_msg}")
+        return event_data
 
     def _load_direct(self, file_path: Path) -> dict:
         """Load event directly without mmap."""
         with open(file_path, "rb") as f:
-            # Read header
-            header = struct.unpack("IQQ", f.read(self.HEADER_SIZE))
-            version, data_offset, data_size = header
-
-            # Read data
-            f.seek(data_offset)
-            data_bytes = f.read(data_size)
-            # Security: pickle data is generated internally by our
-            # system, not from untrusted sources
-            event_data = pickle.loads(data_bytes)  # nosec B301 - Internal
-
+            event_data = self._deserialize_event_data(f)
         logger.debug("Loaded event from disk (direct I/O)")
         return event_data
+
+    def _deserialize_event_data(self, file_obj) -> dict:
+        """Deserialize event data from file object (reads header and pickled data)."""
+        header = struct.unpack("IQQ", file_obj.read(self.HEADER_SIZE))
+        _version, data_offset, data_size = header
+        file_obj.seek(data_offset)
+        data_bytes = file_obj.read(data_size)
+        return pickle.loads(data_bytes)  # nosec B301 - Internal data only
 
     def remove_event(self, event_id: str) -> bool:
         """

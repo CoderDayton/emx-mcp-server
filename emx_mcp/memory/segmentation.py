@@ -101,13 +101,11 @@ class SurpriseSegmenter:
         if gamma is None:
             gamma = self.gamma
 
-        # Get surprise values using embedding-based method
-        if token_embeddings is not None:
-            surprises = self._compute_embedding_surprises(token_embeddings)
-            logger.debug("Using embedding-based surprise calculation (O(n))")
-        else:
+        if token_embeddings is None:
             raise ValueError("token_embeddings required for embedding-based surprise calculation")
 
+        surprises = self._compute_embedding_surprises(token_embeddings)
+        logger.debug("Using embedding-based surprise calculation (O(n))")
         boundaries = [0]  # Start with first token
 
         for t in range(self.window_offset, len(surprises)):
@@ -195,10 +193,11 @@ class SurpriseSegmenter:
                 surprise_threshold = 0.0
 
         boundaries = [0]
-        for idx, depth in zip(candidate_boundaries, depth_scores, strict=True):
-            if depth > surprise_threshold and idx >= min_segment_length:
-                boundaries.append(idx)
-
+        boundaries.extend(
+            idx
+            for idx, depth in zip(candidate_boundaries, depth_scores, strict=True)
+            if depth > surprise_threshold and idx >= min_segment_length
+        )
         # Step 5: Enforce minimum segment length (O(n))
         boundaries = self._enforce_min_length_linear(boundaries, n_tokens, min_segment_length)
 
@@ -283,9 +282,7 @@ class SurpriseSegmenter:
         """Compute cosine similarity between two vectors."""
         norm_a = np.linalg.norm(a)
         norm_b = np.linalg.norm(b)
-        if norm_a == 0 or norm_b == 0:
-            return 0.0
-        return np.dot(a, b) / (norm_a * norm_b)
+        return 0.0 if norm_a == 0 or norm_b == 0 else np.dot(a, b) / (norm_a * norm_b)
 
     def _find_local_minima_linear(self, scores: np.ndarray) -> list[int]:
         """
@@ -293,11 +290,11 @@ class SurpriseSegmenter:
 
         Complexity: O(n)
         """
-        minima = []
+        minima: list[int] = []
         n = len(scores)
-        for i in range(1, n - 1):
-            if scores[i] < scores[i - 1] and scores[i] < scores[i + 1]:
-                minima.append(i)
+        minima.extend(
+            i for i in range(1, n - 1) if scores[i] < scores[i - 1] and scores[i] < scores[i + 1]
+        )
         return minima
 
     def _compute_depth_linear(
@@ -502,11 +499,7 @@ class SurpriseSegmenter:
                         contribution = adjacency[i, j] - expected
 
                         # Double count off-diagonal elements
-                        if i != j:
-                            modularity += 2 * contribution
-                        else:
-                            modularity += contribution
-
+                        modularity += 2 * contribution if i != j else contribution
             modularity /= 4 * total_weight
 
             if modularity > best_modularity:

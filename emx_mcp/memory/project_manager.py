@@ -23,8 +23,18 @@ class ProjectMemoryManager:
     """Manages per-project and global episodic memory with IVF indexing."""
 
     encoder: EmbeddingEncoder
+    project_path: Path
+    global_path: Path
+    config: dict[str, Any]
+    memory_dir: Path
+    project_store: HierarchicalMemoryStore
+    global_store: HierarchicalMemoryStore
+    segmenter: SurpriseSegmenter
+    retrieval: CachedBatchRetrieval
+    pending_events: list[dict[str, Any]]
+    batch_event_threshold: int
 
-    def __init__(self, project_path: str, global_path: str, config: dict):
+    def __init__(self, project_path: str, global_path: str, config: dict[str, Any]) -> None:
         self.project_path = Path(project_path)
         self.global_path = Path(global_path)
 
@@ -125,24 +135,24 @@ class ProjectMemoryManager:
         logger.info(f"Project memory initialized at {self.memory_dir}")
         logger.info("Using O(n) linear segmentation for all document sizes")
 
-    def get_local_context(self) -> list:
+    def get_local_context(self) -> list[Any]:
         """Get project's current local context."""
         return list(self.project_store.local_context)
 
-    def get_global_context(self) -> list:
+    def get_global_context(self) -> list[Any]:
         """Get global shared context."""
         return list(self.global_store.local_context)
 
-    def get_global_semantic(self) -> dict:
+    def get_global_semantic(self) -> dict[str, Any]:
         """Get global semantic knowledge."""
         return self.global_store.get_semantic_knowledge()
 
     def segment_tokens(
         self,
-        tokens: list,
+        tokens: list[str],
         gamma: float,
         context_window: int = 10,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """
         Segment tokens into episodic events using embedding-based surprise.
 
@@ -193,21 +203,26 @@ class ProjectMemoryManager:
 
     def retrieve_memories(
         self,
-        query_embedding: list,
+        query_embedding: list[float] | NDArray[np.float32],
         k_similarity: int,
         k_contiguity: int,
         use_contiguity: bool,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Retrieve relevant memories via cached two-stage retrieval."""
-        return self.retrieval.retrieve(query_embedding, k_similarity, k_contiguity, use_contiguity)
+        return self.retrieval.retrieve(
+            query_embedding,
+            k_similarity,
+            k_contiguity,
+            use_contiguity,
+        )
 
     def retrieve_memories_batch(
         self,
-        query_embeddings: np.ndarray | list[list[float]],
+        query_embeddings: NDArray[np.float32] | list[list[float]],
         k_similarity: int,
         k_contiguity: int,
         use_contiguity: bool,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """
         Retrieve memories for multiple queries with batch optimization.
 
@@ -227,26 +242,13 @@ class ProjectMemoryManager:
             query_embeddings = np.array(query_embeddings, dtype=np.float32)
 
         return self.retrieval.retrieve_batch(
-            query_embeddings, k_similarity, k_contiguity, use_contiguity
+            query_embeddings,
+            k_similarity,
+            k_contiguity,
+            use_contiguity,
         )
 
-    def retrieve_batch(
-        self,
-        query_embeddings: np.ndarray | list[list[float]],
-        k_similarity: int,
-        k_contiguity: int,
-        use_contiguity: bool,
-    ) -> list[dict]:
-        """
-        Direct batch retrieval interface.
-
-        Alias for retrieve_memories_batch() for cleaner API.
-        """
-        return self.retrieve_memories_batch(
-            query_embeddings, k_similarity, k_contiguity, use_contiguity
-        )
-
-    def get_cache_info(self) -> dict:
+    def get_cache_info(self) -> dict[str, Any]:
         """
         Get detailed retrieval cache statistics.
 
@@ -268,11 +270,11 @@ class ProjectMemoryManager:
 
     def add_event(
         self,
-        tokens: list,
+        tokens: list[str],
         embeddings: NDArray[np.float32] | None = None,
-        metadata: dict | None = None,
+        metadata: dict[str, Any] | None = None,
         force_flush: bool = False,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """
         Add episodic event to project memory with batch encoding optimization.
 
@@ -326,7 +328,7 @@ class ProjectMemoryManager:
             "threshold": self.batch_event_threshold,
         }
 
-    def _flush_pending_events(self) -> dict:
+    def _flush_pending_events(self) -> dict[str, Any]:
         """
         Flush buffered events by batch-encoding all tokens together.
 
@@ -343,8 +345,8 @@ class ProjectMemoryManager:
         num_events = len(self.pending_events)
 
         # Flatten all tokens from all pending events
-        all_tokens = []
-        event_boundaries = [0]  # Track where each event's tokens start/end
+        all_tokens: list[str] = []
+        event_boundaries: list[int] = [0]  # Track where each event's tokens start/end
 
         for event in self.pending_events:
             all_tokens.extend(event["tokens"])
@@ -393,7 +395,7 @@ class ProjectMemoryManager:
             "tokens_per_second": tokens_per_sec,
         }
 
-    def flush_events(self) -> dict:
+    def flush_events(self) -> dict[str, Any]:
         """
         Manually flush any buffered events.
 
@@ -401,15 +403,17 @@ class ProjectMemoryManager:
         """
         return self._flush_pending_events()
 
-    def remove_events(self, event_ids: list[str]) -> dict:
+    def remove_events(self, event_ids: list[str]) -> dict[str, Any]:
         """Remove events from project memory."""
         return self.project_store.remove_events(event_ids)
 
-    def retrain_index(self, force: bool = False, expected_vector_count: int | None = None) -> dict:
+    def retrain_index(
+        self, force: bool = False, expected_vector_count: int | None = None
+    ) -> dict[str, Any]:
         """Retrain IVF index with optional expected vector count for optimal nlist."""
         return self.project_store.retrain_index(force, expected_vector_count)
 
-    def optimize_memory(self, prune_old_events: bool, compress_embeddings: bool) -> dict:
+    def optimize_memory(self, prune_old_events: bool, compress_embeddings: bool) -> dict[str, Any]:
         """Optimize memory storage."""
         results: dict[str, list[dict[str, Any]]] = {"optimizations": []}
 
@@ -424,7 +428,7 @@ class ProjectMemoryManager:
 
         return results
 
-    def get_stats(self) -> dict:
+    def get_stats(self) -> dict[str, Any]:
         """Get memory statistics."""
         return {
             "project_events": self.project_store.event_count(),
@@ -433,15 +437,15 @@ class ProjectMemoryManager:
             "memory_path": str(self.memory_dir),
         }
 
-    def get_index_info(self) -> dict:
+    def get_index_info(self) -> dict[str, Any]:
         """Get IVF index information."""
         return self.project_store.get_index_info()
 
-    def clear_memory(self):
+    def clear_memory(self) -> None:
         """Clear project memory (keeps global)."""
         self.project_store.clear()
 
-    def export_memory(self, output_path: str | Path) -> dict:
+    def export_memory(self, output_path: str | Path) -> dict[str, Any]:
         """Export project memory to tar.gz."""
         output_path = Path(output_path)
 
@@ -454,7 +458,7 @@ class ProjectMemoryManager:
             "size_bytes": output_path.stat().st_size,
         }
 
-    def import_memory(self, input_path: str, merge: bool) -> dict:
+    def import_memory(self, input_path: str, merge: bool) -> dict[str, Any]:
         """Import memory from tar.gz."""
         if not merge:
             self.clear_memory()

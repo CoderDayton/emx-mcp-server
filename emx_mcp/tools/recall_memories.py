@@ -1,18 +1,21 @@
 """Tool for retrieving relevant memories based on semantic similarity."""
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from emx_mcp.memory.project_manager import ProjectMemoryManager
 
 logger = logging.getLogger(__name__)
 
 
 def recall_memories(
-    manager,
+    manager: "ProjectMemoryManager",
     query: str,
     scope: str = "project",
     format: str = "detailed",
     k: int = 10,
-) -> dict:
+) -> dict[str, Any]:
     """
     Retrieve relevant memories based on semantic similarity to your query.
 
@@ -58,7 +61,7 @@ def recall_memories(
     cache_info = manager.get_cache_info()
     if cache_info["cache_size"] == 0:
         logger.debug("Pre-warming retrieval cache for first query...")
-        manager.warmup_cache_manual(num_passes=3)
+        manager.retrieval.warmup_cache_manual(num_passes=3)
 
     # Retrieve from project memory (always if scope != global)
     results: dict[str, Any] = {
@@ -69,9 +72,12 @@ def recall_memories(
         "cache_info": cache_info,
     }
 
-    if scope in ["project", "both"]:
+    if scope == "global":
+        results["warning"] = "Global scope not yet implemented, searching project only"
+
+    elif scope in {"project", "both"}:
         project_results = manager.retrieve_memories(
-            query_embedding.tolist(),
+            query_embedding,
             k_similarity=k,
             k_contiguity=5,
             use_contiguity=True,
@@ -96,10 +102,6 @@ def recall_memories(
                 )
 
             results["memories"].append(memory_entry)
-
-    # TODO: Add global scope retrieval when requested
-    if scope == "global":
-        results["warning"] = "Global scope not yet implemented, searching project only"
 
     # Add index health info
     index_info = manager.get_index_info()

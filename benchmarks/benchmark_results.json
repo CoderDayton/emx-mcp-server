@@ -6,12 +6,12 @@
     "nprobe": 8
   },
   "timings": {
-    "tokenization_sec": 0.0002964429995699902,
-    "storage_sec": 41.76344756300023,
-    "remember_total_sec": 45.61226585299937
+    "tokenization_sec": 0.00030784900445723906,
+    "storage_sec": 51.23266723300185,
+    "remember_total_sec": 55.01204279700323
   },
   "memory": {
-    "remember_delta_mb": 513.39453125
+    "remember_delta_mb": 513.9453125
   },
   "corpus": {
     "total_tokens": 24379
@@ -925,7 +925,7 @@
       24358,
       24378
     ],
-    "time_sec": 3.84842253899933
+    "time_sec": 3.778916481001943
   },
   "indexing": {
     "is_trained": true,
@@ -939,33 +939,33 @@
   },
   "retrieval": {
     "num_queries": 5,
-    "total_time_sec": 0.14115761799985194,
-    "avg_time_ms": 28.231523599970387,
+    "total_time_sec": 0.025555343003361486,
+    "avg_time_ms": 5.111068600672297,
     "results": [
       {
         "query": "debugging database connection pool exhaustion...",
-        "num_results": 15,
-        "time_ms": 28.206274600051984
+        "num_results": 10,
+        "time_ms": 3.1131443989579566
       },
       {
         "query": "JWT authentication security best practices...",
-        "num_results": 15,
-        "time_ms": 28.206274600051984
+        "num_results": 10,
+        "time_ms": 3.1131443989579566
       },
       {
         "query": "performance optimization JSON serialization...",
-        "num_results": 15,
-        "time_ms": 28.206274600051984
+        "num_results": 10,
+        "time_ms": 3.1131443989579566
       },
       {
         "query": "file attachment feature roadmap planning...",
-        "num_results": 15,
-        "time_ms": 28.206274600051984
+        "num_results": 10,
+        "time_ms": 3.1131443989579566
       },
       {
         "query": "rate limiting token refresh endpoint...",
-        "num_results": 15,
-        "time_ms": 28.206274600051984
+        "num_results": 10,
+        "time_ms": 3.1131443989579566
       }
     ]
   }

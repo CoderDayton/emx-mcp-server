@@ -95,7 +95,7 @@ def search_memory_batch(
         # Fall back to individual queries for small batches
         for idx, (query, query_emb) in enumerate(zip(queries, query_embeddings, strict=True)):
             search_result = manager.retrieve_memories(
-                query_emb.tolist(),
+                query_emb,
                 k_similarity=k,
                 k_contiguity=0,
                 use_contiguity=False,
