@@ -225,9 +225,9 @@ class PinnedMemoryPool:
         if array.ndim == 1:
             array = array.reshape(1, -1)
 
-        batch_size = array.shape[0]
-
         if pool is not None:
+            batch_size = array.shape[0]
+
             # Acquire from pool (reusable)
             buffer, release = pool.acquire(batch_size)
             buffer[:] = torch.from_numpy(array)

@@ -29,4 +29,8 @@ wheels/
 AGENTS.md
 
 # VS Code settings
-.vscode/
+.vscode/-e 
+# Coverage
+coverage.xml
+.coverage
+htmlcov/
