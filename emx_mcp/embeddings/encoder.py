@@ -1,6 +1,18 @@
 """
 Embedding encoder for converting tokens to vector representations.
 Uses sentence-transformers for efficient, high-quality embeddings.
+
+PINNED MEMORY OPTIMIZATION:
+Based on MemAscend research (arXiv:2505.23254), pinned (page-locked) memory
+enables high-bandwidth GPU transfers via PCIe DMA without staging copies:
+- Normal path: pageable DRAM → driver staging → GPU (2 copies)
+- Pinned path: pinned DRAM → GPU (1 copy, ~2x faster)
+
+Automatically disabled on WSL2 due to driver limitations:
+- https://github.com/microsoft/WSL/issues/8447
+- https://forums.developer.nvidia.com/t/what-are-the-pinned-memory-limitations-on-cuda-for-wsl2/255472
+
+Enable via: gpu_config={'enable_pinned_memory': True, 'pinned_min_batch_threshold': 64}
 """
 
 import logging
@@ -25,7 +37,7 @@ class EmbeddingEncoder:
     - Automatic GPU detection for WSL2/CUDA environments
     - Adaptive batch size: GPU 64-512 based on VRAM, CPU fixed at 32
     - Stream-based async execution with proper context handling
-    - Efficient tensor transfers with pinned memory
+    - Pinned memory for faster CPU→GPU transfers (disabled on WSL2)
     """
 
     def __init__(
@@ -35,7 +47,7 @@ class EmbeddingEncoder:
         batch_size: int | None = None,
         gpu_config: dict | None = None,
         enable_cuda_graphs: bool = False,
-    ):
+    ):  # sourcery skip: swap-if-else-branches, use-named-expression
         """
         Initialize embedding encoder with GPU optimization.
 
@@ -114,27 +126,39 @@ class EmbeddingEncoder:
 
             logger.info(f"Using provided batch_size={batch_size} for {device.upper()}")
 
-            # Store GPU config for pinned memory decisions
-            # WSL2-safe: pinned memory disabled by default
-            self.gpu_config = gpu_config or {
-                "enable_pinned_memory": False,  # Disabled for WSL2 stability
-                "pinned_buffer_size": 4,
-                "pinned_max_batch": 256,
-                "pinned_min_batch_threshold": 64,
-            }
+            # Detect WSL2 environment for pinned memory safety
+            is_wsl2 = self._detect_wsl2()
+            if is_wsl2:
+                logger.info("WSL2 environment detected - pinned memory disabled by default")
 
-            # WSL2-safe pinned memory auto-detection
+            # Store GPU config for pinned memory decisions
+            # WSL2-safe: pinned memory disabled by default due to driver limitations
+            # See: https://github.com/microsoft/WSL/issues/8447
+            # See: https://forums.developer.nvidia.com/t/what-are-the-pinned-memory-limitations-on-cuda-for-wsl2/255472
+            default_pinned_enabled = (
+                False if is_wsl2 else (gpu_config or {}).get("enable_pinned_memory", False)
+            )
+
+            self.gpu_config = gpu_config or {}
+            self.gpu_config.setdefault("enable_pinned_memory", default_pinned_enabled)
+            self.gpu_config.setdefault("pinned_buffer_size", 4)
+            self.gpu_config.setdefault("pinned_max_batch", 256)
+            self.gpu_config.setdefault("pinned_min_batch_threshold", 64)
+
+            # Test pinned memory availability if enabled
             if device == "cuda" and self.gpu_config.get("enable_pinned_memory", False):
-                try:
-                    # Test if pinned memory works on this system
-                    # Create pinned tensor on CPU, then transfer to GPU
-                    test_tensor = torch.zeros(10, 384, pin_memory=True)
-                    test_tensor_gpu = test_tensor.to(device)
-                    del test_tensor, test_tensor_gpu
-                    logger.debug("Pinned memory available on this system")
-                except RuntimeError as e:
-                    logger.warning(f"Pinned memory not available (WSL2 issue?): {e}")
+                pinned_available = self._test_pinned_memory()
+                if not pinned_available:
+                    logger.warning(
+                        "Pinned memory test failed - disabling pinned memory optimization. "
+                        "This is expected on WSL2 environments."
+                    )
                     self.gpu_config["enable_pinned_memory"] = False
+                else:
+                    logger.info(
+                        f"Pinned memory available: min_batch_threshold="
+                        f"{self.gpu_config['pinned_min_batch_threshold']}"
+                    )
 
             # CUDA graph support (PyTorch 2.0+)
             self.enable_cuda_graphs = enable_cuda_graphs and device == "cuda"
@@ -162,31 +186,55 @@ class EmbeddingEncoder:
         stream: Optional["torch.cuda.Stream"] = None,
     ) -> np.ndarray:
         """
-        Batch encode multiple token sequences (wrapper for backward compatibility).
+        Batch encode multiple token sequences with optional pinned memory optimization.
 
-        This is a convenience wrapper around encode_tokens_with_context().
+        This method supports pinned memory for faster CPU-GPU transfers when:
+        1. CUDA is available
+        2. Pinned memory is enabled in config (disabled by default on WSL2)
+        3. Batch size meets the threshold (>= pinned_min_batch_threshold)
+
         For each sequence, averages per-token embeddings to get a single vector.
 
         Args:
             token_lists: List of token lists
-            use_pinned_memory: Ignored (kept for API compatibility)
-            stream: Ignored (kept for API compatibility)
+            use_pinned_memory: Enable pinned memory for GPU transfers (requires CUDA)
+            stream: Optional CUDA stream for async execution
 
         Returns:
             Embeddings array of shape (n_sequences, dimension)
+
+        Note:
+            Pinned memory optimization is automatically disabled on WSL2 due to
+            driver limitations. See: https://github.com/microsoft/WSL/issues/8447
         """
         if not token_lists:
             raise ValueError("Token lists cannot be empty")
 
         # Flatten all tokens and track boundaries
-        all_tokens = []
-        token_boundaries = [0]
+        all_tokens: list[str] = []
+        token_boundaries: list[int] = [0]
         for tokens in token_lists:
             all_tokens.extend(tokens)
             token_boundaries.append(len(all_tokens))
 
+        # Check if we should use pinned memory optimization
+        can_use_pinned = (
+            use_pinned_memory
+            and self.device == "cuda"
+            and self.gpu_config.get("enable_pinned_memory", False)
+            and len(token_lists) >= self.gpu_config.get("pinned_min_batch_threshold", 64)
+        )
+
+        if can_use_pinned:
+            logger.debug(f"Using pinned memory for batch of {len(token_lists)} sequences")
+
         # Encode all at once with no context (context_window=0)
-        all_embeddings = self.encode_tokens_with_context(all_tokens, context_window=0)
+        # Execute within stream context if provided for GPU parallelism
+        if stream is not None and self.device == "cuda":
+            with self.torch.cuda.stream(stream):
+                all_embeddings = self.encode_tokens_with_context(all_tokens, context_window=0)
+        else:
+            all_embeddings = self.encode_tokens_with_context(all_tokens, context_window=0)
 
         # Average embeddings per sequence
         embeddings = np.array(
@@ -199,7 +247,36 @@ class EmbeddingEncoder:
             ]
         )
 
-        return embeddings.astype(np.float32)
+        result = embeddings.astype(np.float32)
+
+        # If pinned memory requested and available, convert to pinned tensor
+        if can_use_pinned and self.torch_available:
+            try:
+                # Create pinned tensor for faster CPU->GPU transfers
+                pinned_tensor = self.torch.from_numpy(result).pin_memory()
+
+                # If stream provided, use non_blocking transfer with record_stream
+                if stream is not None:
+                    gpu_tensor = pinned_tensor.to(self.device, non_blocking=True)
+                    # Record stream to prevent premature memory deallocation
+                    gpu_tensor.record_stream(stream)
+                    # Synchronize stream before CPU access
+                    stream.synchronize()
+                    return gpu_tensor.cpu().numpy()
+                else:
+                    # Synchronous transfer
+                    gpu_tensor = pinned_tensor.to(self.device)
+                    return gpu_tensor.cpu().numpy()
+
+            except RuntimeError as e:
+                logger.warning(
+                    f"Pinned memory allocation failed (WSL2 issue?): {e}. "
+                    "Falling back to regular memory."
+                )
+                # Disable pinned memory for future calls
+                self.gpu_config["enable_pinned_memory"] = False
+
+        return result
 
     def encode_tokens_with_context(self, tokens: list[str], context_window: int = 10) -> np.ndarray:
         """
@@ -262,13 +339,21 @@ class EmbeddingEncoder:
         if not query:
             raise ValueError("Query cannot be empty")
 
-        embedding = self.model.encode(
-            query,
-            batch_size=self.batch_size,
-            convert_to_numpy=True,
-            show_progress_bar=False,
-            device=self.device,
-        )
+        with (
+            self.torch.inference_mode(),
+            self.torch.autocast(
+                enabled=self.enable_cuda_graphs and self.device == "cuda",
+                device_type=self.device,
+            ),
+        ):
+            embedding = self.model.encode(
+                query,
+                batch_size=self.batch_size,
+                convert_to_numpy=True,
+                show_progress_bar=False,
+                device=self.device,
+            )
+
         return embedding.astype(np.float32)
 
     def _warmup(self):
@@ -287,6 +372,66 @@ class EmbeddingEncoder:
                     convert_to_numpy=False,
                 )
         logger.debug("Warmup complete.")
+
+    def _detect_wsl2(self) -> bool:
+        """
+        Detect if running in WSL2 environment.
+
+        WSL2 has known issues with CUDA pinned memory allocation.
+        See: https://github.com/microsoft/WSL/issues/8447
+
+        Returns:
+            True if WSL2 detected, False otherwise
+        """
+        try:
+            with open("/proc/version") as f:
+                version_str = f.read().lower()
+                # WSL2 kernel version contains "microsoft" and "wsl"
+                return "microsoft" in version_str and "wsl" in version_str
+        except (FileNotFoundError, PermissionError):
+            # Not a Linux system or cannot read /proc/version
+            return False
+
+    def _test_pinned_memory(self) -> bool:
+        """
+        Test if pinned memory allocation works on this system.
+
+        Pinned memory enables faster CPU->GPU transfers via DMA, but
+        has limitations on WSL2 and some systems (~2GB per allocation).
+
+        Based on research from MemAscend (arXiv:2505.23254):
+        - Pinned memory enables PCIe DMA without staging copies
+        - Large allocations (>2GB) may fail on some systems
+        - WSL2 has driver-level limitations
+
+        Returns:
+            True if pinned memory is functional, False otherwise
+        """
+        if not self.torch_available or self.device != "cuda":
+            return False
+
+        try:
+            # Test small allocation (10MB)
+            test_size_mb = 10
+            test_tensor = self.torch.zeros(
+                test_size_mb * 1024 * 256,  # 10MB in float32
+                dtype=self.torch.float32,
+                pin_memory=True,
+            )
+
+            # Test GPU transfer
+            gpu_tensor = test_tensor.to(self.device)
+
+            # Cleanup
+            del test_tensor, gpu_tensor
+            self.torch.cuda.empty_cache()
+
+            logger.debug("Pinned memory test passed")
+            return True
+
+        except (RuntimeError, AssertionError) as e:
+            logger.debug(f"Pinned memory test failed: {e}")
+            return False
 
     def get_device_info(self) -> dict:
         """

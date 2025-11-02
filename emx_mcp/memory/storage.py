@@ -31,6 +31,8 @@ from emx_mcp.storage.graph_store import GraphStore
 from emx_mcp.storage.vector_store import VectorStore
 
 if TYPE_CHECKING:
+    import torch
+
     from emx_mcp.gpu.stream_manager import StreamManager
 
 logger = logging.getLogger(__name__)
@@ -217,8 +219,22 @@ class HierarchicalMemoryStore:
             )
             del self.event_cache[oldest]
 
-    def _add_to_vector_store(self, event_id: str, embeddings: list, metadata: dict) -> dict:
-        """Add embeddings to vector store."""
+    def _add_to_vector_store(
+        self,
+        event_id: str,
+        embeddings: list,
+        metadata: dict,
+        stream: Optional["torch.cuda.Stream"] = None,
+    ) -> dict:
+        """
+        Add embeddings to vector store with optional stream for GPU parallelism.
+
+        Args:
+            event_id: Event identifier
+            embeddings: List of embedding vectors
+            metadata: Event metadata
+            stream: Optional CUDA stream for pipelined GPU operations
+        """
         if not embeddings:
             return {"status": "no_embeddings"}
 
@@ -230,6 +246,7 @@ class HierarchicalMemoryStore:
             vectors=embeddings_array,
             event_ids=[event_id],
             metadata=[metadata or {}],
+            stream=stream,
         )
 
     def _add_to_graph_store(
@@ -332,7 +349,19 @@ class HierarchicalMemoryStore:
         Add episodic event with full integration and atomic rollback.
 
         Orchestrates event addition across all storage backends (vector, graph, disk/JSON).
-        Uses extracted helper methods for better readability and maintainability.
+        Uses GPU stream parallelism when use_streams=True and stream_manager available.
+
+        Args:
+            event_id: Unique event identifier
+            tokens: List of token strings
+            embeddings: List of embedding vectors (one per token)
+            metadata: Event metadata dict
+            boundaries: Token boundary indices
+            surprise_scores: Per-token surprise scores
+            use_streams: Enable GPU stream parallelism for encode→add→search pipeline
+
+        Returns:
+            Dict with event_id, status, offloaded flag, vector_result, token_count
 
         CRITICAL: embeddings is a SINGLE vector, event_ids=[event_id]
         """
@@ -340,6 +369,15 @@ class HierarchicalMemoryStore:
         offload_completed = False
         vector_added = False
         graph_added = False
+
+        # Acquire stream for GPU parallelism if requested
+        stream_context = None
+        stream = None
+
+        if use_streams and self.stream_manager is not None:
+            stream_context = self.stream_manager.acquire_stream()
+            stream = stream_context.__enter__()
+            logger.debug(f"Using GPU stream for event {event_id}")
 
         try:
             # Create event object
@@ -350,8 +388,8 @@ class HierarchicalMemoryStore:
             # Store to disk or JSON
             offload_completed, temp_file_path = self._store_event_disk_or_json(event)
 
-            # Add to vector store
-            vector_result = self._add_to_vector_store(event_id, embeddings, metadata)
+            # Add to vector store with stream
+            vector_result = self._add_to_vector_store(event_id, embeddings, metadata, stream)
             vector_added = bool(embeddings is not None and embeddings)
 
             # Add to graph store
@@ -382,6 +420,10 @@ class HierarchicalMemoryStore:
                 event_id, vector_added, graph_added, offload_completed, temp_file_path
             )
             raise
+        finally:
+            # Release stream
+            if stream_context is not None:
+                stream_context.__exit__(None, None, None)
 
     def get_event(self, event_id: str) -> EpisodicEvent:
         """Retrieve event with automatic cache/disk handling."""
@@ -436,38 +478,34 @@ class HierarchicalMemoryStore:
             "total_events": self.metadata["event_count"],
         }
 
-    def search_events(self, query_embedding: np.ndarray, k: int = 10) -> list[EpisodicEvent]:
-        """Search for similar events and retrieve full objects."""
-        event_ids, distances, metadata = self.vector_store.search(query_embedding, k)
-
-        events = []
-        for event_id, _distance in zip(event_ids, distances, strict=True):
-            try:
-                event = self.get_event(event_id)
-                events.append(event)
-            except Exception as e:
-                logger.warning(f"Could not retrieve event {event_id}: {e}")
-
-        return events
-
-    def search_events_batch(
-        self, query_embeddings: np.ndarray, k: int = 10
-    ) -> list[list[EpisodicEvent]]:
+    def search_events(
+        self,
+        query_embedding: np.ndarray,
+        k: int = 10,
+        use_streams: bool = False,
+    ) -> list[EpisodicEvent]:
         """
-        Batch search for similar events and retrieve full objects.
+        Search for similar events and retrieve full objects.
 
         Args:
-            query_embeddings: Array of shape (n_queries, dimension)
-            k: Number of results per query
-
-        Returns:
-            List of event lists, one per query
+            query_embedding: Query embedding vector
+            k: Number of results
+            use_streams: Enable GPU stream parallelism
         """
-        # Use vectorized batch search from VectorStore
-        batch_results = self.vector_store.search_batch(query_embeddings, k)
+        # Acquire stream for GPU parallelism if requested
+        stream_context = None
+        stream = None
 
-        all_events = []
-        for event_ids, distances, _metadata in batch_results:
+        if use_streams and self.stream_manager is not None:
+            stream_context = self.stream_manager.acquire_stream()
+            stream = stream_context.__enter__()
+            logger.debug("Using GPU stream for search")
+
+        try:
+            event_ids, distances, metadata = self.vector_store.search(
+                query_embedding, k, stream=stream
+            )
+
             events = []
             for event_id, _distance in zip(event_ids, distances, strict=True):
                 try:
@@ -475,9 +513,57 @@ class HierarchicalMemoryStore:
                     events.append(event)
                 except Exception as e:
                     logger.warning(f"Could not retrieve event {event_id}: {e}")
-            all_events.append(events)
 
-        return all_events
+            return events
+        finally:
+            if stream_context is not None:
+                stream_context.__exit__(None, None, None)
+
+    def search_events_batch(
+        self,
+        query_embeddings: np.ndarray,
+        k: int = 10,
+        use_streams: bool = False,
+    ) -> list[list[EpisodicEvent]]:
+        """
+        Batch search for similar events and retrieve full objects.
+
+        Args:
+            query_embeddings: Array of shape (n_queries, dimension)
+            k: Number of results per query
+            use_streams: Enable GPU stream parallelism
+
+        Returns:
+            List of event lists, one per query
+        """
+        # Acquire stream for GPU parallelism if requested
+        stream_context = None
+        stream = None
+
+        if use_streams and self.stream_manager is not None:
+            stream_context = self.stream_manager.acquire_stream()
+            stream = stream_context.__enter__()
+            logger.debug(f"Using GPU stream for batch search ({len(query_embeddings)} queries)")
+
+        try:
+            # Use vectorized batch search from VectorStore
+            batch_results = self.vector_store.search_batch(query_embeddings, k, stream=stream)
+
+            all_events = []
+            for event_ids, distances, _metadata in batch_results:
+                events = []
+                for event_id, _distance in zip(event_ids, distances, strict=True):
+                    try:
+                        event = self.get_event(event_id)
+                        events.append(event)
+                    except Exception as e:
+                        logger.warning(f"Could not retrieve event {event_id}: {e}")
+                all_events.append(events)
+
+            return all_events
+        finally:
+            if stream_context is not None:
+                stream_context.__exit__(None, None, None)
 
     def get_temporal_neighbors(self, event_id: str, max_distance: int = 3) -> list[str]:
         """Get temporally adjacent events via graph store."""

