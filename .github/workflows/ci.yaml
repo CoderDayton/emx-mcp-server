@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, "ci/**"]
   pull_request:
 
 jobs:
@@ -45,5 +45,14 @@ jobs:
       - name: Run security checks
         run: uv run bandit -r emx_mcp -c pyproject.toml
       
-      - name: Run tests
-        run: uv run pytest -v --tb=short
+      - name: Run tests with coverage
+        run: uv run pytest -v --tb=short --cov=emx_mcp --cov-report=xml --cov-report=term-missing
+      
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage.xml
+          fail_ci_if_error: false
+          verbose: true
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
