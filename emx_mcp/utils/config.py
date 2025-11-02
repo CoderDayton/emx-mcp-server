@@ -54,25 +54,19 @@ def _get_env_bool(name: str, default: bool) -> bool:
 def _get_env_int(name: str, default: int) -> int:
     """Get integer environment variable."""
     value = os.getenv(name)
-    if value is None:
-        return default
-    return int(value)
+    return default if value is None else int(value)
 
 
 def _get_env_float(name: str, default: float) -> float:
     """Get float environment variable."""
     value = os.getenv(name)
-    if value is None:
-        return default
-    return float(value)
+    return default if value is None else float(value)
 
 
 def _get_env_str(name: str, default: str) -> str:
     """Get string environment variable."""
     value = os.getenv(name)
-    if value is None:
-        return default
-    return str(value)
+    return default if value is None else str(value)
 
 
 def get_env_var(name: str, default: str = "") -> str:
